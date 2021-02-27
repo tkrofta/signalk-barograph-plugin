@@ -1,0 +1,28 @@
+{
+  "name": "signalk-barograph",
+  "version": "0.1.0",
+  "description": "SignalK plugin to export environment data into infludb for graphics & analysis (temperature, pressure, humidity)",
+  "main": "index.js",
+  "dependencies": {
+    "@influxdata/influxdb-client": "^1.10.0",
+    "@influxdata/influxdb-client-apis": "^1.10.0",
+    "debug": "^4.3.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \\\"Error: no test specified\\\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tkrofta/signalk-barograph-plugin.git"
+  },
+  "keywords": [
+    "signalk-node-server-plugin"
+  ],
+  "author": "Inspired Technologies",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tkrofta/signalk-barograph-plugin/issues"
+  },
+  "homepage": "https://github.com/tkrofta/signalk-barograph-plugin#readme"
+}
