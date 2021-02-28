@@ -1,5 +1,6 @@
-const {InfluxDB} = require('@influxdata/influxdb-client')
+const {InfluxDB, Point, HttpError} = require('@influxdata/influxdb-client')
 const {HealthAPI} = require('@influxdata/influxdb-client-apis')
+const { LOADIPHLPAPI } = require('dns')
 const cache = require('./cache')
 
 let cacheBuffer
@@ -7,6 +8,7 @@ let cacheBuffer
 function login(clientOptions, log) {
     try {
         const influxDB = new InfluxDB(clientOptions)
+
         log ("Influx Login successful")
         return influxDB
     } catch (err) {
@@ -56,52 +58,53 @@ function config(root, interval) {
 }
 
 function post (influxdb, metrics, config, log) {
-    influxdb.write(
-        {
-            org: config.organization,         // [Required] Organization | Empty for 1.8.x
-            bucket: config.bucket,            // [Required] Bucket | Database/Retention Policy
-            precision: 'ms'                    // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
-        },
-        metrics,
-    )
-    .then(resp => {
-        log(resp + 'successfully uploaded')
-        cacheResult = cache.load(config.cacheDir, log) 
-        if (cacheResult === false) {
-            return
-        }
-        else {      
-            log('Cache files to be loaded to influx')
-            log(JSON.stringify(cacheResult))
-            post(influxdb, cache.send(cacheResult, config.cacheDir), config, log)
-        }
-
-    })
-    .catch(err => {
-        // Handle errors
-        cache.push(cacheBuffer, config.cacheDir)
-        cacheBuffer = []
-        log(`Caching metrics because ${err.message}`);
-        const cacheResult = cache.load(config.cacheDir, log)
-        if (cacheResult !== false) {
-            log(`${cacheResult.length} files still cached`)
-        }
+    // [Required] Organization | Empty for 1.8.x
+    // [Required] Bucket | Database/Retention Policy
+    // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
+    const writeAPI = influxdb.getWriteApi(config.organization, config.bucket, 'ms')
+    // TODO: setup default tags for all writes through this API
+    writeAPI.useDefaultTags({id: config.id})
+    
+    // write point with the appropriate (client-side) timestamp
+    for (i=0; i<metrics.length; i++)
+    {
+        writeAPI.writePoint(metrics[i])
+        log(`${i+1}: ${metrics[i].toLineProtocol(writeAPI)}`)
+    }
+    writeAPI
+        .close()
+        .then(() => {
+            log('Loaded successfully')
+            cacheResult = cache.load(config.cacheDir, log) 
+            if (cacheResult === false) {
+                return
+            }
+            else {      
+                log('Cache file(s) to be loaded to influx')
+                log(JSON.stringify(cacheResult))
+                post(influxdb, cache.send(cacheResult, config.cacheDir), config, log)
+            }
+        })
+        .catch(err => {
+            // Handle errors
+            cache.push(cacheBuffer, config.cacheDir)
+            cacheBuffer = []
+            log(`Caching metrics because ${err.message}`);
+            const cacheResult = cache.load(config.cacheDir, log)
+            if (cacheResult !== false) {
+                log(`${cacheResult.length} files cached`)
+            }
     })
     // log(JSON.stringify(metrics))
 }
 
-function format (path, values, skTimestamp, config) {
+function format (path, values, skTimestamp, log) {
     if (values === null){
         values = 0
     }
 
     //Set variables for metric
-    let metric = null
-    let measurement = ''
-    let tags = {
-        id: config.id
-    }
-    let fields = {}
+    let point = null
     let timestamp = Date.parse(skTimestamp)
 
     // Get correct measurement based on path based on path config
@@ -110,21 +113,36 @@ function format (path, values, skTimestamp, config) {
     switch (skPath.length) {
         case 4:
             // default
-            measurement = skPath[2]
-            tags = JSON.parse(JSON.stringify(tags).replace('}', ',') + '"' + skPath[0] + '":"' + skPath[1] + '"}')
-            fields[skPath[3]] = values
+            if (typeof values==='string')
+                point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .stringField(skPath[3], values)
+            else
+                point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .floatField(skPath[3], values)
             break;
         case 3:
             // default
-            measurement = skPath[2]
-            tags = JSON.parse(JSON.stringify(tags).replace('}', ',') + '"' + skPath[0] + '":"' + skPath[1] + '"}')
-            fields.value = values
+            if (typeof values==='string')
+                point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .stringField('value', values)
+            else
+                point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .floatField('value', values)
             break;
         case 2:
             // to be verified
-            measurement = skPath[1]
-            tags = JSON.parse(JSON.stringify(tags).replace('}', ',') + '"' + skPath[0] + '":""}')
-            fields.value = values
+            if (typeof values==='string')
+                point = new Point(skPath[1])
+                    .tag(skPath[0], '')
+                    .stringField('value', values)
+            else
+                point = new Point(skPath[1])
+                    .tag(skPath[0], '')
+                    .floatField('value', values)
             break;
         case 1:
         default:
@@ -133,9 +151,9 @@ function format (path, values, skTimestamp, config) {
             break;
     }
    
-    if (measurement!=='' && tags && fields && timestamp)
-        metric = { measurement, tags, fields, timestamp }
-    return metric
+    point.timestamp = (timestamp ? timestamp : Date.now())
+    // log(point)
+    return point
 }
 
 module.exports = {

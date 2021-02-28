@@ -86,7 +86,7 @@ module.exports = function (app) {
                                 timestamp = new Date(app.getSelfPath('environment.forecast.time').value*1000).toISOString()
                         }
         
-                        const metric = influx.format(path, values, timestamp, influxConfig)
+                        const metric = influx.format(path, values, timestamp, log)
                         if (metric!==null)
                             metrics.push(metric)    
                     }
@@ -120,8 +120,8 @@ module.exports = function (app) {
             app.savePluginOptions(options, () => {app.debug('Plugin options saved')});
         }
         influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
-        influxConfig.organization = options.influxOrg
-        influxConfig.bucket = options.influxBucket
+        influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
+        influxConfig.bucket = (options.influxBucket ? options.influxBucket : '') 
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
 
         const influxDB = influx.login({
