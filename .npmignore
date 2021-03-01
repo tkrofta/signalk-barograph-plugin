@@ -2,3 +2,5 @@
 .vscode
 #github
 .github
+#pathconfig - will be recreated
+./pathconfig.json
