@@ -20,6 +20,7 @@ module.exports = function (app) {
     var unsubscribes = [];
     let timerId;
     let metrics;
+    let pathConfig = {}
     
     function saveconfig(dir, file, content) {
         fs.writeFileSync(
@@ -32,6 +33,17 @@ module.exports = function (app) {
         return file
     }
 
+    function reconfig(path, config) {
+
+        if (config.includes('|>')) {
+            // replace
+            const param = config.split('|>')
+            return path.replace(param[0], param[1])
+        }
+
+        return null
+    }
+
     function subscribe(influxDB, result) {
         if (influxConfig.initialized && result.status === 'pass' ) {
 
@@ -40,12 +52,19 @@ module.exports = function (app) {
                 influxConfig.paths = influx.config('environment', 10*1000)
                 var options = app.readPluginOptions();
                 saveconfig(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
+            } 
+            else 
+            {
+                influxConfig.paths.forEach(p => {
+                    if (p.hasOwnProperty('config'))
+                        pathConfig[p.path] = reconfig(p.path, p.config)
+                });
             }
 
             app.setPluginStatus('Initialized');
 
             timerId = setInterval(() => {
-                app.debug (`Sending ${metrics.length} metrics to be uploaded to influx`)
+                app.debug (`Sending ${metrics.length} data points to be uploaded to influx`)
                 if (metrics.length !== 0) {
                     influx.post(influxDB, metrics, influxConfig, log)
                     influx.cacheBuffer = metrics
@@ -73,7 +92,7 @@ module.exports = function (app) {
                     if (!u.values || u.values[0].path===undefined || u.values[0].value===WAITING) {
                         return;
                     }
-                    const path = u.values[0].path
+                    const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
                     const values = u.values[0].value
                     var timestamp = u.timestamp
                     if (path==='environment.forecast.time')

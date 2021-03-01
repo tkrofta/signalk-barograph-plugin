@@ -15,7 +15,7 @@
    {"path":"environment.outside.pressure","period":60000,"policy":"instant","minPeriod":30000},
    {"path":"environment.forecast.pressure","period":900000,"policy":"instant","minPeriod":30000},
    {"path":"environment.inside.humidity","period":60000,"policy":"instant","minPeriod":30000},
-   {"path":"environment.outside.humidity","period":60000,"policy":"instant","minPeriod":30000},
+   {"path":"environment.outside.relativeHumidity","period":60000,"policy":"instant","minPeriod":30000,"config":"relativeHumidity|>humidity"},
    {"path":"environment.forecast.humidity","period":900000,"policy":"fixed"},
    {"path":"environment.forecast.description","period":900000,"policy":"fixed"},
    {"path":"environment.forecast.wind.direction","period":900000,"policy":"fixed"},
