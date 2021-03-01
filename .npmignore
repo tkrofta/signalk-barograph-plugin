@@ -3,4 +3,4 @@
 #github
 .github
 #pathconfig - will be recreated
-./pathconfig.json
+pathconfig.json
