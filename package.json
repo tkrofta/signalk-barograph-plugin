@@ -1,6 +1,6 @@
 {
   "name": "signalk-barograph",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SignalK plugin to export environment data into infludb for graphics & analysis (temperature, pressure, humidity)",
   "main": "index.js",
   "dependencies": {
