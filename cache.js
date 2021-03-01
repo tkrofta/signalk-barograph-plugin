@@ -20,7 +20,7 @@ function load (cacheDir, log) {
 			fileArray.push(files[i]) 
 	//console.log(files)
 	if (fileArray.length == 0) {
-		log('No Files in Cache')
+		log('No files in cache')
 		return false
 	}
 	else {

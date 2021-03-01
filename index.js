@@ -76,7 +76,7 @@ module.exports = function (app) {
                     const path = u.values[0].path
                     const values = u.values[0].value
                     var timestamp = u.timestamp
-                    if (path.includes('environment.forecast.time'))
+                    if (path==='environment.forecast.time')
                         influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
                     else {
                         if (path.includes('environment.forecast')) {

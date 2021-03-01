@@ -1,6 +1,5 @@
-const {InfluxDB, Point, HttpError} = require('@influxdata/influxdb-client')
+const {InfluxDB, Point} = require('@influxdata/influxdb-client')
 const {HealthAPI} = require('@influxdata/influxdb-client-apis')
-const { LOADIPHLPAPI } = require('dns')
 const cache = require('./cache')
 
 let cacheBuffer
@@ -37,20 +36,29 @@ function config(root, interval) {
     switch (root) {
         case 'environment':
                 return [
-                    { path: 'environment.forecast.time', period: interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
+                    { path: 'environment.forecast.time.sunrise', period: 900*interval, policy: "fixed" },
+                    { path: 'environment.forecast.time.sunset', period: 900*interval, policy: "fixed" },
                     { path: 'environment.inside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.water.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.temperature.minimum', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.temperature.maximum', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.temperature.feelslike', period: 60*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.temperature', period: 900*interval, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.minimum', period: 900*interval, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.maximum', period: 900*interval, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.feelslike', period: 900*interval, policy: "fixed" },
                     { path: 'environment.inside.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.forecast.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.inside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.humidity', period: 60*interval, policy: "instant", minPeriod: interval }
+                    { path: 'environment.forecast.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.description', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.wind.direction', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.wind.speed', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.weather.visibility', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.weather.clouds', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" }                    
                 ];
         default:        
             return [] 
@@ -66,28 +74,31 @@ function post (influxdb, metrics, config, log) {
     writeAPI.useDefaultTags({id: config.id})
     
     // write point with the appropriate (client-side) timestamp
+    // log(JSON.stringify(metrics))
+    let measurements = {}
     for (i=0; i<metrics.length; i++)
     {
         writeAPI.writePoint(metrics[i])
-        log(`${i+1}: ${metrics[i].toLineProtocol(writeAPI)}`)
+        measurements[metrics[i].name] = (measurements[metrics[i].name] ? measurements[metrics[i].name]+1 : 1)
+        // log(`${i+1}: ${metrics[i].toLineProtocol(writeAPI)}`)
     }
     writeAPI
         .close()
         .then(() => {
-            log('Loaded successfully')
+            log(measurements)
             cacheResult = cache.load(config.cacheDir, log) 
             if (cacheResult === false) {
                 return
             }
             else {      
-                log('Cache file(s) to be loaded to influx')
+                log('Cached file(s) to be loaded to influx')
                 log(JSON.stringify(cacheResult))
                 post(influxdb, cache.send(cacheResult, config.cacheDir), config, log)
             }
         })
         .catch(err => {
             // Handle errors
-            cache.push(cacheBuffer, config.cacheDir)
+            cache.push(cacheBuffer, config.cacheDir, log)
             cacheBuffer = []
             log(`Caching metrics because ${err.message}`);
             const cacheResult = cache.load(config.cacheDir, log)
@@ -95,7 +106,6 @@ function post (influxdb, metrics, config, log) {
                 log(`${cacheResult.length} files cached`)
             }
     })
-    // log(JSON.stringify(metrics))
 }
 
 function format (path, values, skTimestamp, log) {
