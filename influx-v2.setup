@@ -1,0 +1,58 @@
+influx org create -n "SignalK Dev"
+influx org update -i 7fb4711570f9c872 -n "Dev SignalK"
+
+influx bucket create -n "signalk_metrics" -o "Dev SignalK" -r 6h
+influx bucket create -n "signalk_weather" -o "Dev SignalK" -r 60h
+influx bucket create -n "weather_store" -o "Dev SignalK" -r 60d
+influx bucket create -n "weather_archive" -o "Dev SignalK" -r 1040w
+influx user create -n dev -p inspired -o "Dev SignalK"
+influx user create -n report -p inspired -o "Dev SignalK"
+
+influx org members list \
+  --name "Dev SignalK"
+
+influx auth create -o "Dev SignalK" \
+  --user dev \
+  --read-buckets \
+  --read-checks \
+  --read-dashboards \
+  --read-dbrps \
+  --read-notificationEndpoints \
+  --read-notificationRules \
+  --read-orgs \
+  --read-tasks \
+  --read-telegrafs \
+  --read-user \
+  --write-buckets \
+  --write-checks \
+  --write-dashboards \
+  --write-dbrps \
+  --write-notificationEndpoints \
+  --write-notificationRules \
+  --write-orgs \
+  --write-tasks \
+  --write-telegrafs \
+  --write-user
+
+# influx auth create -o "Dev SignalK" \
+  --user "report"
+  --read-buckets \
+  --read-checks \
+  --read-dashboards \
+  --read-dbrps \
+  --read-notificationEndpoints \
+  --read-notificationRules \
+  --read-orgs \
+  --read-tasks \
+  --read-telegrafs \
+  --read-user
+  --read-user
+
+influx config create --active \
+  -n signalk-dev \
+  -u http://localhost:8086 \
+  -t 072a2cc85ed2b000 \
+  -o "Dev SignalK"
+
+
+influx delete --bucket signalk_weather --start 2021-03-01T00:00:00Z --stop 2021-03-03T23:00:00Z --org "Dev SignalK"
