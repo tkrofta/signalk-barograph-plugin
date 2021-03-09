@@ -1,5 +1,5 @@
 option v = {timeRangeStart: -1h, timeRangeStop: now(), windowPeriod: 60m}
-option task = {name: "cq_weather_60m", every: 1h, offset: 6m}
+option task = {name: "weather_60m", every: 1h, offset: 6m}
 
 from(bucket: "signalk_metrics")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)

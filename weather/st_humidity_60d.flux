@@ -1,33 +1,30 @@
-option v = {timeRangeStart: -15m, timeRangeStop: now(), windowPeriod: 15m}
-option task = {name: "humidity_15m", every: 15m}
+option v = {timeRangeStart: -1h, timeRangeStop: now(), windowPeriod: 1h}
+option task = {name: "st_humidity_60d", every: 1h}
 
-from(bucket: "signalk_metrics")
+from(bucket: "signalk_weather")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
 	|> filter(fn: (r) =>
 		(r["_measurement"] == "humidity"))
 	|> filter(fn: (r) =>
-		(r["_field"] == "value"))
+		(r["_field"] == "average"))
 	|> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)
-	|> set(key: "_field", value: "average")
 	|> yield(name: "average")
-	|> to(bucket: "signalk_weather", org: "Dev SignalK")
-from(bucket: "signalk_metrics")
+	|> to(bucket: "weather_store", org: "Dev SignalK")
+from(bucket: "signalk_weather")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
 	|> filter(fn: (r) =>
 		(r["_measurement"] == "humidity"))
 	|> filter(fn: (r) =>
-		(r["_field"] == "value"))
+		(r["_field"] == "minimum"))
 	|> aggregateWindow(every: v.windowPeriod, fn: min, createEmpty: false)
-	|> set(key: "_field", value: "minimum")
 	|> yield(name: "minimum")
-	|> to(bucket: "signalk_weather", org: "Dev SignalK")
-from(bucket: "signalk_metrics")
+	|> to(bucket: "weather_store", org: "Dev SignalK")
+from(bucket: "signalk_weather")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
 	|> filter(fn: (r) =>
 		(r["_measurement"] == "humidity"))
 	|> filter(fn: (r) =>
-		(r["_field"] == "value"))
+		(r["_field"] == "maximum"))
 	|> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)
-	|> set(key: "_field", value: "maximum")
 	|> yield(name: "maximum")
-	|> to(bucket: "signalk_weather", org: "Dev SignalK")
+	|> to(bucket: "weather_store", org: "Dev SignalK")

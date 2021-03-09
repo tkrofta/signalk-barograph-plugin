@@ -1,5 +1,5 @@
 option v = {timeRangeStart: -15m, timeRangeStop: now(), windowPeriod: 15m}
-option task = {name: "cq_temperature_15m ", every: 15m}
+option task = {name: "temperature_15m ", every: 15m}
 
 from(bucket: "signalk_metrics")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
@@ -32,7 +32,7 @@ from(bucket: "signalk_metrics")
 	|> filter(fn: (r) =>
 		(r["_field"] == "minimum"))
 	|> aggregateWindow(every: v.windowPeriod, fn: min, createEmpty: false)
-	|> yield(name: "fcmin")
+	|> set(key: "_field", value: "minimum")
 	|> to(bucket: "signalk_weather", org: "Dev SignalK")
 from(bucket: "signalk_metrics")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
@@ -43,7 +43,7 @@ from(bucket: "signalk_metrics")
 	|> filter(fn: (r) =>
 		(r["_field"] == "value"))
 	|> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)
-	|> set(key: "_field", value: "maxmimum")
+	|> set(key: "_field", value: "maximum")
 	|> yield(name: "maximum")
 	|> to(bucket: "signalk_weather", org: "Dev SignalK")
 from(bucket: "signalk_metrics")
@@ -55,7 +55,7 @@ from(bucket: "signalk_metrics")
 	|> filter(fn: (r) =>
 		(r["_field"] == "maximum"))
 	|> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)
-	|> yield(name: "fcmax")
+	|> set(key: "_field", value: "maximum")
 	|> to(bucket: "signalk_weather", org: "Dev SignalK")
 from(bucket: "signalk_metrics")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
@@ -66,7 +66,7 @@ from(bucket: "signalk_metrics")
 	|> filter(fn: (r) =>
 		(r["_field"] == "feelslike"))
 	|> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)
-	|> yield(name: "fcfeels")
+	|> yield(name: "feelslike")
 	|> to(bucket: "signalk_weather", org: "Dev SignalK")
 from(bucket: "signalk_metrics")
 	|> range(start: v.timeRangeStart, stop: v.timeRangeStop)
@@ -77,5 +77,5 @@ from(bucket: "signalk_metrics")
 	|> filter(fn: (r) =>
 		(r["_field"] == "dewpoint"))
 	|> aggregateWindow(every: v.windowPeriod, fn: min, createEmpty: false)
-	|> yield(name: "fcdewp")
+	|> yield(name: "dewpoint")
 	|> to(bucket: "signalk_weather", org: "Dev SignalK")
