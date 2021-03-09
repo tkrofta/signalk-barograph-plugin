@@ -6,6 +6,7 @@
 pathconfig.json
 influx-v2.setup
 weather
+visualization
 
 
 # Logs
