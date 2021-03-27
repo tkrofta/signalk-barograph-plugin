@@ -31,9 +31,10 @@ function load (cacheDir, log) {
 function send (filenames, cacheDir) {
 	var input = []
 	filenames.forEach(function (file) {
-		const thisfile = fs.readFileSync(`${cacheDir}/${file}`, 'utf8')
-		if (thisfile.includes(REQUEUED))
-	  		input.push(...JSON.parse(thisfile));
+		if (file.includes(REQUEUED)) {
+			const thisfile = fs.readFileSync(`${cacheDir}/${file}`, 'utf8')
+			input.push(...JSON.parse(thisfile));
+		}
 	});
 	
 	for (const file of filenames) {

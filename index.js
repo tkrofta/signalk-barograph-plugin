@@ -1,6 +1,7 @@
 'use strict'
 const debug = require("debug")("signalk:signalk-barograph")
 const influx = require("./influx")
+const barometer = require("./barometer")
 const fs = require('fs')
 const path = require('path')
 const WAITING = 'waiting ...'
@@ -58,23 +59,35 @@ module.exports = function (app) {
                 influxConfig.paths.forEach(p => {
                     if (p.hasOwnProperty('config'))
                         pathConfig[p.path] = reconfig(p.path, p.config)
+                    if (p.hasOwnProperty('trend'))
+                        barometer.addSubcriptionHandler(p.trend, p.path)
                 });
             }
 
+            let preload = barometer.preLoad()
+            if (preload)
+            {
+                sendDelta(preload.update)
+                if (preload.meta!==null)
+                    sendMeta(preload.meta)
+            }
             app.setPluginStatus('Initialized');
 
             timerId = setInterval(() => {
                 app.debug (`Sending ${metrics.length} data points to be uploaded to influx`)
                 if (metrics.length !== 0) {
                     influx.post(influxDB, metrics, influxConfig, log)
-                    influx.cacheBuffer = metrics
+                    influx.buffer(metrics)
                     metrics = []
                 }
+                let updates = barometer.getTrendAndPredictions(influxConfig.loadFrequency*1000)
+                if (updates.length>0)
+                    sendDelta(updates)
             }, influxConfig.loadFrequency*1000)
             app.debug (`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
 
             let localSubscription = {
-                context: '*', // Get data for all contexts
+                context: 'vessels.self', // Get data only for self context
                 subscribe: influxConfig.paths
             };
 
@@ -104,10 +117,16 @@ module.exports = function (app) {
                             else
                                 timestamp = new Date(app.getSelfPath('environment.forecast.time').value*1000).toISOString()
                         }
-        
-                        const metric = influx.format(path, values, timestamp, log)
-                        if (metric!==null)
-                            metrics.push(metric)    
+                        else if (barometer.isSubscribed(path))
+                        {
+                            barometer.onDeltaUpdate(u)
+                        }
+                        if (path.includes('environment'))
+                        {
+                            const metric = influx.format(path, values, timestamp, log)
+                            if (metric!==null)
+                                metrics.push(metric)
+                        }
                     }
                 })
             }
@@ -150,7 +169,10 @@ module.exports = function (app) {
         }, log)
 
         influxConfig.initialized = influx.health(influxDB, log, subscribe)
-        influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30) 
+        influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
+
+        // TODO: if configured
+        barometer.init(app.debug, options["barometer"])
 
         app.debug('Plugin initialized');
     };
@@ -211,6 +233,31 @@ module.exports = function (app) {
             }
         }
     };
+
+    
+    /**
+     * 
+     * @param {Array<[{path:path, value:value}]>} messages 
+     */
+    function sendDelta(messages) {
+        app.handleMessage('signalk-barograph', {
+            updates: [
+                {
+                    values: messages
+                }
+            ]
+        });
+    }
+
+    function sendMeta(units) {
+        app.handleMessage('signalk-barograph', {
+            updates: [
+                {
+                    meta: units
+                }
+            ]   
+        })
+    }
 
     function log(msg) { app.debug(msg); }
 

@@ -1,28 +1,34 @@
 {
   "name": "signalk-barograph",
-  "version": "0.2.1",
-  "description": "SignalK plugin to export environment data into infludb for graphics & analysis (temperature, pressure, humidity)",
+  "version": "0.3.0",
+  "description": "SignalK plugin to influx environment data & Barograph to visualize atmospheric pressure",
   "main": "index.js",
   "dependencies": {
     "@influxdata/influxdb-client": "^1.10.0",
     "@influxdata/influxdb-client-apis": "^1.10.0",
+    "barometer-trend": "^2.1.2",
     "debug": "^4.3.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@signalk/github-create-release": "^1.0.1"
+  },
   "scripts": {
-    "test": "echo \\\"Error: no test specified\\\" && exit 1"
+    "test": "$NODE $npm_package_main",
+    "create-release": "github-create-release --owner tkrofta --repository signalk-barograph",
+    "release": "git tag -d v$npm_package_version; git tag v$npm_package_version && git push --tags && git push && npm run create-release"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tkrofta/signalk-barograph-plugin.git"
   },
   "keywords": [
-    "signalk-node-server-plugin"
+    "signalk-node-server-plugin",
+    "signalk-webapp"
   ],
   "author": "Inspired Technologies",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/tkrofta/signalk-barograph-plugin/issues"
   },
-  "homepage": "https://github.com/tkrofta/signalk-barograph-plugin#readme"
+  "homepage": "https://github.com/tkrofta/signalk-barograph-plugincd "
 }

@@ -2,7 +2,7 @@ const {InfluxDB, Point} = require('@influxdata/influxdb-client')
 const {HealthAPI} = require('@influxdata/influxdb-client-apis')
 const cache = require('./cache')
 
-let cacheBuffer
+let cacheBuffer = []
 
 function login(clientOptions, log) {
     try {
@@ -65,6 +65,10 @@ function config(root, interval) {
     }
 }
 
+function buffer(metrics) {
+    cacheBuffer = metrics
+}
+
 function post (influxdb, metrics, config, log) {
     // [Required] Organization | Empty for 1.8.x
     // [Required] Bucket | Database/Retention Policy
@@ -91,9 +95,21 @@ function post (influxdb, metrics, config, log) {
                 return
             }
             else {      
-                log('Cached file(s) to be loaded to influx')
-                log(JSON.stringify(cacheResult))
-                post(influxdb, cache.send(cacheResult, config.cacheDir), config, log)
+                let cached = cache.send(cacheResult, config.cacheDir)
+                log('Sending '+cached.length+' cached data points to be uploaded to influx')
+                let points = []
+                cached.forEach(p => {
+                    let point = new Point(p.name)
+                        .tag(Object.keys(p.tags)[0], p.tags[Object.keys(p.tags)[0]])
+                        .timestamp(p.timestamp)
+                    if (parseFloat(p.fields[Object.keys(p.fields)[0]])!==NaN) 
+                        point.floatField(Object.keys(p.fields)[0], parseFloat(p.fields[Object.keys(p.fields)[0]]))
+                    else
+                        point.stringField(Object.keys(p.fields)[0], p.fields[Object.keys(p.fields)[0]])
+                    points.push(point)
+                })
+                // log(JSON.stringify(points))
+                post(influxdb, points, config, log)
             }
         })
         .catch(err => {
@@ -167,10 +183,10 @@ function format (path, values, skTimestamp, log) {
 }
 
 module.exports = {
-    cacheBuffer,
     login,      // login to InfluxDB
     health,     // check InfluxDB health
     config,     // create default configuration
+    buffer,      // load cache if post can be complete
     post,       // post to InfluxDB
     format      // format measurement before sending
 }
