@@ -23,10 +23,10 @@
   },
   "keywords": [
     "signalk-node-server-plugin",
-    "signalk-webapp"
+    "signalk-embeddable-webapp"
   ],
   "author": "Inspired Technologies",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "bugs": {
     "url": "https://github.com/tkrofta/signalk-barograph-plugin/issues"
   },
