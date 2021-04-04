@@ -1,7 +1,6 @@
 const predictions = require ('barometer-trend')
 const units = require ('./skunits')
 let log = null
-let type = 'trend'
 
 let currentPressure = '';
 let currentTemperature = '';
@@ -12,32 +11,16 @@ function isSubscribed(path) {
 }
 
 let pathPrefix = "environment.barometer.";
-const barometerTrend = pathPrefix+"trend";
-const trendTime = pathPrefix+"trend.time";
-const barometerPrediction = pathPrefix+"prediction";
-const predictionTime = pathPrefix+"prediction.time";
+const barometerTrend = pathPrefix+"trend";                  // severity, trend, tendency
+const trendDifference = pathPrefix+"trend.difference";      // difference
+const trendPeriod = pathPrefix+"trend.period";              // period
+const barometerPrediction = pathPrefix+"prediction";        // season
+const predictionWind = pathPrefix+"wind.predicted";         // beaufort 
+const predictionWindDir = pathPrefix+"wind.direction";      // quadrant 
+const predictionWindMin = pathPrefix+"wind.minimum";        // beaufort -> range 
+const predictionWindMax = pathPrefix+"wind.maximum";        // beaufort -> range
+const predictionFront = pathPrefix+"front.predicted";       // front
 const barometerDescription = pathPrefix+'description';
-/*
-const forecastSunrise = pathPrefix+"trend.sunrise";
-const forecastSunset = pathPrefix+"time.sunset";
-const simpleTemp = pathPrefix+'temperature';
-const simpleHumidity = pathPrefix+'humidity';
-const simplePressure = pathPrefix+'pressure';
-const simpleDescription = pathPrefix+'description';
-const simpleRain = pathPrefix+'rain';
-const simpleWeatherCode = pathPrefix+'weather.code';
-const fullMain = pathPrefix+'weather';
-const fullIcon = pathPrefix+'weather.icon';
-const fullTempMin = pathPrefix+'temperature.minimum';
-const fullTempMax = pathPrefix+'temperature.maximum';
-const fullFeelsLike = pathPrefix+'temperature.feelslike';
-const fullDewPoint = pathPrefix+'temperature.dewpoint';
-const fullUVIndex = pathPrefix+'weather.uvindex';
-const fullClouds = pathPrefix+'weather.clouds';
-const fullVisibility = pathPrefix+'weather.visibility';
-const fullWindSpeed = pathPrefix+'wind.speed';
-const fullWinDir = pathPrefix+'wind.direction';
-*/
 
 const latest = {
     update: null,
@@ -91,18 +74,25 @@ function getTrendAndPredictions (interval) {
     let messages = []
     if (!lastUpdateWithin(interval) && predictions.hasPressures())
     {
-        let forecast = predictions.getPredictions(latest.hemisphere==='N')
-        if (forecast!==null)
-        {
-            // determine Forecast
-            latest.update = Date.now()
-            latest.trend = forecast.trend
-            latest.prediction = forecast.predictions
-            latest.description = forecast.predictions.pressureOnly
-            // +", Wind forecast: "+forecast.predictions.beaufort
-            log ({count: predictions.getPressureCount(), trend: latest.trend, prediction: latest.prediction })
-            // add Messages
-            prepareUpdate('description').forEach(m => messages.push(m))                
+        try {
+            let forecast = predictions.getPredictions(latest.hemisphere==='N')
+            if (forecast!==null)
+            {
+                // determine Forecast
+                latest.update = Date.now()
+                latest.trend = forecast.trend 
+                latest.prediction = forecast.predictions
+                latest.description = forecast.predictions.pressureOnly
+                // +", Wind forecast: "+forecast.predictions.beaufort
+                log ({count: predictions.getPressureCount(), trend: latest.trend, prediction: latest.prediction })
+                // add Messages
+                prepareUpdate('description').forEach(m => messages.push(m))
+                prepareUpdate('trend').forEach(m => messages.push(m)) 
+                prepareUpdate('prediction').forEach(m => messages.push(m))               
+            }
+        }
+        catch (err) {
+            log ('Error calculating predictions: '+err)
         }
     }
     return messages
@@ -157,33 +147,59 @@ function onPositionUpdate(value) {
     log("Hemisphere set to "+latest.hemisphere);
 }
 
+function predictWindSpeed(prediction, calc) {
+    if (prediction==='Less than F6') {
+        if (calc==='min')
+            return 0;
+        else
+            return 6;
+    } else {
+        if (prediction.includes('-')) {
+            forecast = prediction.replace('F', '').split('-')
+            if (calc==='min')
+                return forecast[0]
+            else
+                return forecast[1]
+        } else if (prediction.include('+')) {
+            forecast = prediction.replace('F', '').split('+')
+            if (calc==='min')
+                return forecast[0]
+            else
+                return 12
+        } else {
+            return int.parse(prediction.replace('F', ''))
+        }
+    }
+}
+
 function prepareUpdate(type) {
     const noData = "waiting ..."
+    const noVal = null
     switch (type) {
         case 'description': return [
             buildDeltaUpdate(barometerDescription, latest.description !== null ? latest.description : noData),
         ];
         case 'trend': return [
-            buildDeltaUpdate(trendTime, latest.trend.time !== null ? latest.trend.time : noData),
+            buildDeltaUpdate(barometerTrend, latest.trend !== null ? { severity: latest.trend.severity, tendency: latest.trend.tendency, changerate: latest.trend.trend } : {}),
+            buildDeltaUpdate(trendDifference, latest.trend !== null ? units.toSignalK('Pa', latest.trend.difference).value : noVal),
+            buildDeltaUpdate(trendPeriod, latest.trend !== null ? (-1)*latest.trend.period*60 : noVal)
         ];
         case 'prediction': return [
-            buildDeltaUpdate(predictionTime, latest.prediction.time !== null ? latest.prediction.time : noData),
+            buildDeltaUpdate(barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
+            buildDeltaUpdate(predictionWind, latest.prediction !== null ? latest.prediction.beaufort : noData),
+            buildDeltaUpdate(predictionWindDir, latest.prediction !== null ? latest.prediction.quadrant : noData),
+            buildDeltaUpdate(predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort, 'min')).value : noVal),
+            buildDeltaUpdate(predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort, 'max')).value : noVal),
+            buildDeltaUpdate(predictionFront, latest.prediction !== null ? latest.prediction.front: { key: 'N/A' }),
         ];
         case 'meta-trend': return [
-/*            buildDeltaUpdate(simpleTemp, { units: "K" }),
-            buildDeltaUpdate(simpleHumidity, { units: "ratio" }),
-            buildDeltaUpdate(simplePressure, { units: "Pa" }) */
+            buildDeltaUpdate(trendDifference, { units: "Pa" }),
+            buildDeltaUpdate(trendPeriod, { units: "s" })
         ];
         case 'meta-prediction': return [
-/*            buildDeltaUpdate(simpleTemp, { units: "K" }),
-            buildDeltaUpdate(fullTempMin, { units: "K" }),
-            buildDeltaUpdate(fullTempMax, { units: "K" }),
-            buildDeltaUpdate(fullFeelsLike, { units: "K" }),
-            buildDeltaUpdate(simpleHumidity, { units: "ratio" }),
-            buildDeltaUpdate(simplePressure, { units: "Pa" }),
-            buildDeltaUpdate(fullDewPoint, { units: "K" }),
-            buildDeltaUpdate(fullWindSpeed, { units: "m/s" }),
-            buildDeltaUpdate(fullWinDir, { units: "rad" }) */
+            buildDeltaUpdate(predictionWindDir, { units: "" }),
+            buildDeltaUpdate(predictionWindMin, { units: "m/s" }),
+            buildDeltaUpdate(predictionWindMax, { units: "m/s" })
         ];
         default:
             return [];
@@ -201,13 +217,17 @@ function preLoad() {
     // set the coordinates (latitude,longitude)
     latest.description = 'waiting for prediction data ...';
     let initial = prepareUpdate('description');
+    let trend = prepareUpdate('trend');
+    trend.forEach(v => initial.push(v));
+    let prediction = prepareUpdate('prediction');
+    prediction.forEach(v => initial.push(v));
     let meta = null
     // add units to updates
-    /* if (initial) {
-        type = 'meta-'+type
-        meta = prepareUpdate(null, null, null);
-        type = type.replace('meta-', '')        
-    } */
+    if (initial) {
+        meta = prepareUpdate('meta-trend');
+        let pred = prepareUpdate('meta-prediction');
+        pred.forEach(m => meta.push(m));
+    }
     return { "update": initial, "meta": meta }
 }
 

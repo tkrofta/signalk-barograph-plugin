@@ -2,6 +2,8 @@
 const debug = require("debug")("signalk:signalk-barograph")
 const influx = require("./influx")
 const barometer = require("./barometer")
+const appconfig = require ("./appconfig")
+const convert = require("./skunits")
 const fs = require('fs')
 const path = require('path')
 const WAITING = 'waiting ...'
@@ -22,6 +24,7 @@ module.exports = function (app) {
     let timerId;
     let metrics;
     let pathConfig = {}
+    let valueConfig = {}
     
     function saveconfig(dir, file, content) {
         fs.writeFileSync(
@@ -59,8 +62,12 @@ module.exports = function (app) {
                 influxConfig.paths.forEach(p => {
                     if (p.hasOwnProperty('config'))
                         pathConfig[p.path] = reconfig(p.path, p.config)
-                    if (p.hasOwnProperty('trend'))
+                    if (p.hasOwnProperty('convert'))
+                        valueConfig[p.path] = p.convert                                         
+                    if (p.hasOwnProperty('trend')) {
                         barometer.addSubcriptionHandler(p.trend, p.path)
+                        appconfig.addSubcription(p.trend, p.path)
+                    }
                 });
             }
 
@@ -86,6 +93,11 @@ module.exports = function (app) {
             }, influxConfig.loadFrequency*1000)
             app.debug (`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
 
+            var appConfigTimer = setInterval( (log) => {
+                appconfig.setAppUserData(log);
+                clearInterval(appConfigTimer);               
+              }, 5000, log);
+              
             let localSubscription = {
                 context: 'vessels.self', // Get data only for self context
                 subscribe: influxConfig.paths
@@ -102,21 +114,24 @@ module.exports = function (app) {
                 return;
                 }
                 delta.updates.forEach(u => {
-                    if (!u.values || u.values[0].path===undefined || u.values[0].value===WAITING) {
+                    if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || u.values[0].value==={})) {
                         return;
                     }
                     const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
-                    const values = u.values[0].value
+                    const values = (!valueConfig[path] ? u.values[0].value : 
+                        convert.toTarget(valueConfig[path].split('|>')[0], u.values[0].value, valueConfig[path].split('|>')[1]).value )
                     var timestamp = u.timestamp
                     if (path==='environment.forecast.time')
-                        influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
+                        // conversion not required due to dt format change in openweather plugin (v0.5) 
+                        // influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
+                        influxConfig.currentForecast = u.values[0].value
                     else {
                         if (path.includes('environment.forecast')) {
                             if (app.getSelfPath('environment.forecast.time').value===WAITING)
                                 timestamp = influxConfig.currentForecast
                             else
-                                timestamp = new Date(app.getSelfPath('environment.forecast.time').value*1000).toISOString()
-                        }
+                                timestamp = app.getSelfPath('environment.forecast.time').value
+                            }
                         else if (barometer.isSubscribed(path))
                         {
                             barometer.onDeltaUpdate(u)
@@ -167,10 +182,15 @@ module.exports = function (app) {
             token: options.influxToken,     // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
         }, log)
-
+        appconfig.addInflux('url', options.influxUri)
+        appconfig.addInflux('token', options.influxToken)
+        appconfig.addInflux('org', influxConfig.organization)
+        appconfig.addInflux('bucket', influxConfig.bucket)
+        appconfig.addInflux('username', options.influxToken.includes(':') ? options.influxToken.split(':')[0] : '') // not relevant for >2.x
+        appconfig.addInflux('password', options.influxToken.includes(':') ? options.influxToken.split(':')[1] : '') // not relevant for >2.x
+        appconfig.init('http://localhost:3000', 'dev', 'inspired')
         influxConfig.initialized = influx.health(influxDB, log, subscribe)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
-
         // TODO: if configured
         barometer.init(app.debug, options["barometer"])
 

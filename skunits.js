@@ -1,7 +1,40 @@
 /*
     conversions-module - specifically for SignalK & Barograph
-    reqired for OpenWeather Map | Squid Sailing Forecasting modules
+    reqired by OpenWeather Map | Squid Sailing Forecasting modules
 */
+
+// Beaufort Wind Scale
+const BEAUFORT_SCALE = [
+	{ bft: 0, min: 0.0, max: 0.3 },
+	{ bft: 1, min: 0.3, max: 1.6 },
+	{ bft: 2, min: 1.6, max: 3.4 },
+	{ bft: 3, min: 3.4, max: 5.5 },
+	{ bft: 4, min: 5.5, max: 8.0 },
+	{ bft: 5, min: 8.0, max: 10.8 },
+	{ bft: 6, min: 10.8, max: 13.9 },
+	{ bft: 7, min: 13.9, max: 17.2 },
+	{ bft: 8, min: 17.2, max: 20.8 },
+	{ bft: 9, min: 20.8, max: 24.5 },
+	{ bft: 10, min: 24.5, max: 28.5 },
+	{ bft: 11, min: 28.5, max: 32.7 },
+	{ bft: 12, min: 32.7, max: 99.9 },
+];
+
+// return windspeed in m/s
+function fromBeaufort(value, calc) {
+    if (typeof value==='string')
+        value = Number(value)
+    if (calc===undefined || (calc!=='min' && calc!=='max')) {
+        return 0.8360 * Math.pow(value, 3/2)
+    } else if (value>=0 && value <=12) {
+        return calc=='min' ? BEAUFORT_SCALE[value].min : calc=='max' ? BEAUFORT_SCALE[value].max : null; 
+    } else
+        return null;
+}
+
+function toBeaufort (value) {
+    return Math.round(Math.pow(value / 0.8360), 2/3)
+}
 
 // returns Pressure at Station based on Pressure at SeaLevel, Elevation (m) and Temperature (K) at Station 
 function toStationAltitude (pressure, elevation, temperature) {
@@ -28,13 +61,19 @@ function toSignalK(units, value) {
     } else if ( units === 'kmh' ) {
         value = value / 3.6
         skUnits = "m/s"
+    } else if ( units === 'kn' ) {
+        value = value / 1.943844
+        skUnits = "m/s"
+    } else if ( units.includes('Bft') ) {
+        value = fromBeaufort(value, (units==='BftMin' ? 'min' : units==='BftMax' ? 'max' : ''))
+        skUnits = "m/s"
     } else if ( units === '°' ) {
         value = value * (Math.PI/180.0)
         skUnits = 'rad'
     } else if ( units === 'Pa' ) {
         skUnits = "Pa"
     } else if ( units === 'hPa' || units=== 'mbar' ) {
-        value = value / 100
+        value = value * 100
         skUnits = "Pa"
     } else if ( units === 'km' ) {
         value = value * 1000
@@ -44,6 +83,9 @@ function toSignalK(units, value) {
         skUnits = "m"
     } else if ( units === 'm' ) {
         skUnits = "m"
+    } else if ( units === 'unixdate' ) {
+        value = new Date(value * 1000).toISOString()
+        skUnits = ""
     }
     return { value: value, units: skUnits }
 }
@@ -73,6 +115,12 @@ function toTarget(skunit, value, target, precision) {
     } else if ( skunit === 'm/s' && (target==='km') ) {
         value = value * 3.6
         unit = target
+    } else if ( skunit === 'm/s' && (target==='kn') ) {
+        value = value * 1.943844
+        unit = target
+    } else if ( skunit === 'm/s' && (target==='Bft') ) {
+        value = toBeaufort(value)
+        unit = target
     } else if ( skunit ==='rad' && (target === '°' || target==='') ) {
         value = value * (180.0/Math.PI)
         unit = '°'
@@ -91,7 +139,13 @@ function toTarget(skunit, value, target, precision) {
         unit = 'km'
     } else if ( skunit === 'm' && target === 'nm' ) {
         value = value / 1852
-        unit ='nm' 
+        unit ='nm'
+    } else if ( skunit === 'dt' && (target === 'ms' || target === 'unixdate' )) {
+        value = (new Date(value).getTime())
+        unit ='ms'
+    } else if ( skunit === 'dt' && target === 's' ) {
+        value = (new Date(value).getTime())/1000
+        unit ='s'
     } else {
         unit = skunit
     }
@@ -99,6 +153,8 @@ function toTarget(skunit, value, target, precision) {
 }
 
 module.exports = {
+    toBeaufort,
+    fromBeaufort,
     toSeaLevel,
     toStationAltitude,
     toSignalK,

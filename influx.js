@@ -37,8 +37,8 @@ function config(root, interval) {
         case 'environment':
                 return [
                     { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
-                    { path: 'environment.forecast.time.sunrise', period: 900*interval, policy: "fixed" },
-                    { path: 'environment.forecast.time.sunset', period: 900*interval, policy: "fixed" },
+                    { path: 'environment.forecast.time.sunrise', period:900*interval, policy:"fixed", convert: 'dt|>s' },
+                    { path: 'environment.forecast.time.sunset', period:900*interval, policy:"fixed", convert: 'dt|>s' },                
                     { path: 'environment.inside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.water.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
@@ -60,6 +60,11 @@ function config(root, interval) {
                     { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" }                    
                 ];
+        case 'navigation':
+                return [
+                    { path: 'navigation.gnss.antennaAltitude', period:900000, policy: 'fixed', trend:'altitude' },
+                    { path: 'navigation.position', policy: 'instant', trend: 'position' }
+                ]
         default:        
             return [] 
     }
