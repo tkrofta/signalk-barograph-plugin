@@ -24,6 +24,6 @@
    {"path":"environment.forecast.weather.clouds","period":900000,"policy":"fixed"},
    {"path":"environment.forecast.weather.uvindex","period":900000,"policy":"fixed"},
    {"path":"environment.forecast.weather.icon","period":900000,"policy":"fixed"},
-   {"path":"navigation.gnss.antennaAltitude","period":900000,"policy":"fixed","trend":"altitude"},
+   {"path":"navigation.gnss.antennaAltitude","period":900000,"policy":"instant","minPeriod":30000,"trend":"altitude"},
    {"path":"navigation.position","policy":"instant","trend":"position"}
 ]

@@ -67,6 +67,10 @@ module.exports = function (app) {
                     if (p.hasOwnProperty('trend')) {
                         barometer.addSubcriptionHandler(p.trend, p.path)
                         appconfig.addSubcription(p.trend, p.path)
+                        // hack: server version > 1.39
+                        if (p.trend==='altitude' && app.getSelfPath(p.path).value) {
+                            barometer.onElevationUpdate(app.getSelfPath(p.path).value)
+                        }
                     }
                 });
             }
@@ -176,6 +180,7 @@ module.exports = function (app) {
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
         influxConfig.bucket = (options.influxBucket ? options.influxBucket : '') 
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
+        appconfig.addInflux('id', influxConfig.id)
 
         const influxDB = influx.login({
             url: options.influxUri,         // get from options
@@ -188,7 +193,18 @@ module.exports = function (app) {
         appconfig.addInflux('bucket', influxConfig.bucket)
         appconfig.addInflux('username', options.influxToken.includes(':') ? options.influxToken.split(':')[0] : '') // not relevant for >2.x
         appconfig.addInflux('password', options.influxToken.includes(':') ? options.influxToken.split(':')[1] : '') // not relevant for >2.x
-        appconfig.init('http://localhost:3000', 'dev', 'inspired')
+        let connectionString = []
+        if (!options.selfRef) {
+            connectionString.push('http://localhost:3000'); // default local server
+            connectionString.push(''); // empty username
+            connectionString.push(''); // empty password
+        } else if (connectionString.length===1) {           // server only
+            connectionString.push(''); // empty username
+            connectionString.push(''); // empty password
+        } else {
+            connectionString=options.selfRef.split('|')
+        }
+        appconfig.init(connectionString[0], connectionString[1], connectionString[2], log)
         influxConfig.initialized = influx.health(influxDB, log, subscribe)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         // TODO: if configured
@@ -234,11 +250,12 @@ module.exports = function (app) {
                 title: 'InfluxDB Bucket',
                 description: 'v2.x: [bucket]; v1.8.x: [database/retentionpolicy]'
             },
-        /* "cacheDirectory": {
-            type: 'string',
-            title: 'full path to directory where the buffer should be stored (note no at end of dir)',
-            default: '/home/pi/.barograph'
-        }, */
+        "selfRef": {
+                type: 'string',
+                title: 'Connection String (server|username|password)',
+                default: 'http://localhost:3000|user|pwd',
+                description: 'SignalK Server credentials required to provide configuration to embedded web app'
+            },
         "pathConfig": {
                 type: 'string',
                 title: 'Paths Configuration',

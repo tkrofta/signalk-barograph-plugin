@@ -107,10 +107,11 @@ function onPressureUpdate(value) {
     {
         latest.pressure = { value, time: Date.now() }
         predictions.addPressure(new Date(latest.pressure.time), value, 
-            (latest.altitude!=='' ? latest.altitude.value : null),
-            (latest.temperature!=='' ? units.toTarget('K', latest.temperature.value, 'deg').value : null),
+            (latest.altitude!==null ? latest.altitude.value : null),
+            (latest.temperature!==null ? units.toTarget('K', latest.temperature.value, 'deg').value : null),
             null)
-        log({ pressure: latest.pressure.value, altitude: latest.altitude.value, temperature: latest.temperature.value, wind: null });
+        log({ pressure: latest.pressure.value, altitude: (latest.altitude!==null ? latest.altitude.value : null), 
+            temperature: (latest.temperature!==null ? latest.temperature.value : null), wind: null });
     }
 }
 
@@ -240,6 +241,7 @@ module.exports = {
     isSubscribed,
     preLoad,
     onDeltaUpdate,
+    onElevationUpdate,
     getTrendAndPredictions,
 
     init: function(loghandler, prefix) {

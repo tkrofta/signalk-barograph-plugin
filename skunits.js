@@ -37,13 +37,17 @@ function toBeaufort (value) {
 }
 
 // returns Pressure at Station based on Pressure at SeaLevel, Elevation (m) and Temperature (K) at Station 
+// return pressure * Math.exp(-elevation / (temperature*29.263));
+// see also: https://keisan.casio.com/exec/system/1224579725
 function toStationAltitude (pressure, elevation, temperature) {
-    return pressure * Math.exp(-elevation / (temperature*29.263));
+    return pressure * Math.pow(1-(0.0065*elevation/(temperature+0.0065*elevation)), 5.257)
 }
 
 // returns Pressure at SeaLevel based on Pressure at Station, Elevation (m) and Temperature (K) at Station 
+// return pressure / Math.exp(-elevation / (temperature*29.263));
+// see also: https://keisan.casio.com/exec/system/1224575267
 function toSeaLevel (pressure, elevation, temperature) {
-    return pressure / Math.exp(-elevation / (temperature*29.263));
+    return pressure * Math.pow(1-(0.0065*elevation/(temperature+0.0065*elevation)), -1.0*5.257)
 }
 
 // converts to SignalK-Units
@@ -126,7 +130,7 @@ function toTarget(skunit, value, target, precision) {
         unit = '°'
     } else if ( skunit === 'Pa' && (target===undefined) ) {
         unit = 'Pa'
-    } else if ( skunit === 'Pa' && (target==='hPa' || units==='mbar' ) ) {
+    } else if ( skunit === 'Pa' && (target==='hPa' || target==='mbar' ) ) {
         value = value / 100
         unit = target
     } else if ( skunit === 'Pa' && (target ==='atm') ) {
@@ -149,6 +153,8 @@ function toTarget(skunit, value, target, precision) {
     } else {
         unit = skunit
     }
+    if (typeof precision==='number')
+        value = value.toFixed(precision)
     return { value: value, units: unit }
 }
 
