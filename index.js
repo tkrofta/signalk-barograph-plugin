@@ -187,7 +187,7 @@ module.exports = function (app) {
             token: options.influxToken,     // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
         }, log)
-        appconfig.addInflux('url', options.influxUri)
+        appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
         appconfig.addInflux('token', options.influxToken)
         appconfig.addInflux('org', influxConfig.organization)
         appconfig.addInflux('bucket', influxConfig.bucket)
