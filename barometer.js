@@ -1,6 +1,7 @@
 const predictions = require ('barometer-trend')
 const units = require ('./skunits')
 let log = null
+let refreshRate = null
 
 let currentPressure = '';
 let currentTemperature = '';
@@ -178,36 +179,37 @@ function prepareUpdate(type) {
     const noVal = null
     switch (type) {
         case 'description': return [
-            buildDeltaUpdate(barometerDescription, latest.description !== null ? latest.description : noData),
+            buildDeltaUpdate(type, barometerDescription, latest.description !== null ? latest.description : noData),
         ];
         case 'trend': return [
-            buildDeltaUpdate(barometerTrend, latest.trend !== null ? { severity: latest.trend.severity, tendency: latest.trend.tendency, changerate: latest.trend.trend } : {}),
-            buildDeltaUpdate(trendDifference, latest.trend !== null ? units.toSignalK('Pa', latest.trend.difference).value : noVal),
-            buildDeltaUpdate(trendPeriod, latest.trend !== null ? (-1)*latest.trend.period*60 : noVal)
+            buildDeltaUpdate(type, barometerTrend, latest.trend !== null ? { severity: latest.trend.severity, tendency: latest.trend.tendency, changerate: latest.trend.trend } : {}),
+            buildDeltaUpdate(type, trendDifference, latest.trend !== null ? units.toSignalK('Pa', latest.trend.difference).value : noVal),
+            buildDeltaUpdate(type, trendPeriod, latest.trend !== null ? (-1)*latest.trend.period*60 : noVal)
         ];
         case 'prediction': return [
-            buildDeltaUpdate(barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
-            buildDeltaUpdate(predictionWind, latest.prediction !== null ? latest.prediction.beaufort : noData),
-            buildDeltaUpdate(predictionWindDir, latest.prediction !== null ? latest.prediction.quadrant : noData),
-            buildDeltaUpdate(predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort, 'min')).value : noVal),
-            buildDeltaUpdate(predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort, 'max')).value : noVal),
-            buildDeltaUpdate(predictionFront, latest.prediction !== null ? latest.prediction.front: { key: 'N/A' }),
+            buildDeltaUpdate(type, barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
+            buildDeltaUpdate(type, predictionWind, latest.prediction !== null ? latest.prediction.beaufort : noData),
+            buildDeltaUpdate(type, predictionWindDir, latest.prediction !== null ? latest.prediction.quadrant : noData),
+            buildDeltaUpdate(type, predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort, 'min')).value : noVal),
+            buildDeltaUpdate(type, predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort, 'max')).value : noVal),
+            buildDeltaUpdate(type, predictionFront, latest.prediction !== null ? latest.prediction.front: { key: 'N/A' }),
         ];
         case 'meta-trend': return [
-            buildDeltaUpdate(trendDifference, { units: "Pa" }),
-            buildDeltaUpdate(trendPeriod, { units: "s" })
+            buildDeltaUpdate(type, trendDifference, { units: "Pa" }),
+            buildDeltaUpdate(type, trendPeriod, { units: "s" })
         ];
         case 'meta-prediction': return [
-            buildDeltaUpdate(predictionWindDir, { units: "" }),
-            buildDeltaUpdate(predictionWindMin, { units: "m/s" }),
-            buildDeltaUpdate(predictionWindMax, { units: "m/s" })
+            buildDeltaUpdate(type, predictionWindDir, { units: "" }),
+            buildDeltaUpdate(type, predictionWindMin, { units: "m/s" }),
+            buildDeltaUpdate(type, predictionWindMax, { units: "m/s" })
         ];
         default:
             return [];
     }
 }
 
-function buildDeltaUpdate(path, value) {
+function buildDeltaUpdate(type, path, value) {
+    if (type.startsWith("meta-") && value !== null) value.timeout = refreshRate/1000;
     return {
         path: path,
         value: value
@@ -244,9 +246,10 @@ module.exports = {
     onElevationUpdate,
     getTrendAndPredictions,
 
-    init: function(loghandler, prefix) {
+    init: function(loghandler, prefix, interval) {
         log = loghandler;
         latest.update = null;
+        refreshRate = interval * 1000;
         predictions.clear();
         if (prefix!=='')
             pathPrefix = 'environment.'+prefix+'.'

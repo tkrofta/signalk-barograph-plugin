@@ -54,6 +54,7 @@ module.exports = function (app) {
             if (influxConfig.paths.length===0) {
                 // Reconfig subscriptions                
                 influxConfig.paths = influx.config('environment', 10*1000)
+                influx.config('navigation', 0).forEach(p => influxConfig.paths.push(p))
                 var options = app.readPluginOptions();
                 saveconfig(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
             } 
@@ -208,7 +209,7 @@ module.exports = function (app) {
         influxConfig.initialized = influx.health(influxDB, log, subscribe)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         // TODO: if configured
-        barometer.init(app.debug, options["barometer"])
+        barometer.init(app.debug, options["barometer"], influxConfig.loadFrequency)
 
         app.debug('Plugin initialized');
     };
