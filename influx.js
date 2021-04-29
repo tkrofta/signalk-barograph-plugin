@@ -1,3 +1,19 @@
+/* 
+    Copyright © 2021 Inspired Technologies GmbH. Rights Reserved.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+*/
+
 const {InfluxDB, Point} = require('@influxdata/influxdb-client')
 const {HealthAPI} = require('@influxdata/influxdb-client-apis')
 const cache = require('./cache')
@@ -129,7 +145,7 @@ function post (influxdb, metrics, config, log) {
     })
 }
 
-function format (path, values, skTimestamp, log) {
+function format (path, values, skTimestamp, skSource) {
     if (values === null){
         values = 0
     }
@@ -142,38 +158,109 @@ function format (path, values, skTimestamp, log) {
     const skPath = path.split('.')
 
     switch (skPath.length) {
+        case 5:
+            // extended - use double tagging
+            switch (typeof values) {
+                case 'string':
+                    point = new Point(skPath[3])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[1], skPath[2])
+                    .stringField(skPath[4], values)    
+                    break;
+                case 'object':
+                    point = new Point(skPath[3])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[1], skPath[2])
+                    .stringField(skPath[4], JSON.stringify(values))  
+                    break;
+                case 'boolean':
+                    point = new Point(skPath[3])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[1], skPath[2])
+                    .booleanField(skPath[4], values)
+                    break;
+                default:
+                    point = new Point(skPath[3])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[1], skPath[2])
+                    .floatField(skPath[4], values)
+                    break;
+            }
+            break;
         case 4:
             // default
-            if (typeof values==='string')
-                point = new Point(skPath[2])
+            switch (typeof values) {
+                case 'string':
+                    point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField(skPath[3], values)
-            else
-                point = new Point(skPath[2])
+                    .stringField(skPath[3], values)    
+                    break;
+                case 'object':
+                    point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .stringField(skPath[3], JSON.stringify(values))  
+                    break;
+                case 'boolean':
+                    point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .booleanField(skPath[3], values)
+                    break;
+                default:
+                    point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
                     .floatField(skPath[3], values)
+                    break;
+            }
             break;
         case 3:
             // default
-            if (typeof values==='string')
-                point = new Point(skPath[2])
+            switch (typeof values) {
+                case 'string':
+                    point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField('value', values)
-            else
-                point = new Point(skPath[2])
+                    .stringField('value', values)    
+                    break;
+                case 'object':
+                    point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .stringField('value', JSON.stringify(values))  
+                    break;
+                case 'boolean':
+                    point = new Point(skPath[2])
+                    .tag(skPath[0], skPath[1])
+                    .booleanField('value', values)
+                    break;
+                default:
+                    point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
                     .floatField('value', values)
+                    break;
+            }
             break;
         case 2:
             // to be verified
-            if (typeof values==='string')
-                point = new Point(skPath[1])
+            switch (typeof values) {
+                case 'string':
+                    point = new Point(skPath[1])
                     .tag(skPath[0], '')
-                    .stringField('value', values)
-            else
-                point = new Point(skPath[1])
+                    .stringField('value', values)    
+                    break;
+                case 'object':
+                    point = new Point(skPath[1])
+                    .tag(skPath[0], '')
+                    .stringField('value', JSON.stringify(values))  
+                    break;
+                case 'boolean':
+                    point = new Point(skPath[1])
+                    .tag(skPath[0], '')
+                    .booleanField('value', values)
+                    break;
+                default:
+                    point = new Point(skPath[1])
                     .tag(skPath[0], '')
                     .floatField('value', values)
+                    break;
+            }
             break;
         case 1:
         default:
@@ -182,8 +269,9 @@ function format (path, values, skTimestamp, log) {
             break;
     }
    
+    if (skSource && skSource!=='')
+        point.tag('source', skSource)
     point.timestamp = (timestamp ? timestamp : Date.now())
-    // log(point)
     return point
 }
 

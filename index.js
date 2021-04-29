@@ -1,5 +1,22 @@
+/* 
+   Copyright © 2021 Inspired Technologies GmbH. Rights Reserved.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 'use strict'
 const debug = require("debug")("signalk:signalk-barograph")
+const { getSourceId } = require('@signalk/signalk-schema')
 const influx = require("./influx")
 const barometer = require("./barometer")
 const appconfig = require ("./appconfig")
@@ -46,6 +63,15 @@ module.exports = function (app) {
         }
 
         return null
+    }
+
+    function source(update) {
+        if (update['$source']) {
+          return update['$source']
+        } else if (update['source']) {
+          return getSourceId(update['source'])
+        }
+        return ''
     }
 
     function subscribe(influxDB, result) {
@@ -124,7 +150,7 @@ module.exports = function (app) {
                     }
                     const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
                     const values = (!valueConfig[path] ? u.values[0].value : 
-                        convert.toTarget(valueConfig[path].split('|>')[0], u.values[0].value, valueConfig[path].split('|>')[1]).value )
+                        convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value )
                     var timestamp = u.timestamp
                     if (path==='environment.forecast.time')
                         // conversion not required due to dt format change in openweather plugin (v0.5) 
@@ -143,7 +169,7 @@ module.exports = function (app) {
                         }
                         if (path.includes('environment'))
                         {
-                            const metric = influx.format(path, values, timestamp, log)
+                            const metric = influx.format(path, values, timestamp, source(u))
                             if (metric!==null)
                                 metrics.push(metric)
                         }
