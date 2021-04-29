@@ -1,0 +1,19 @@
+SignalK Barograph Plugin
+Copyright 2021 Inspired Technologies GmbH. Rights Reserved.
+
+This product depends software developed at SignalK (https://signalk.org/index.html).
+The Initial Developer of some parts of the framework are licensed under the Apache License, Version 2.0. 
+Copyright 2015 Fabian Tollenaar, Teppo Kurki and Signal K committers
+
+The oyve/barometer-trend libaray is licensed under the Apache License 2.0 and 
+available for re-use at NPM (https://www.npmjs.com/package/barometer-trend)
+
+The SignalK Barograph web application is provided subject to the following Terms of Use ("TOU"). 
+Inspired Technologies reserves the right to update the TOU at any time without notice. 
+Unless otherwise specified, the Software is for your personal and non-commercial use. 
+You may not modify, copy, distribute, transmit, display, perform, reproduce, publish, license, 
+create derivative works from, transfer, or sell any information, software, products or services 
+obtained from the Software. Any part of the software that is made available by downloading from NPM 
+is the copyrighted work of Inspired Technolgies and/or its suppliers. Third party scripts or code, 
+linked to or referenced from this website, are licensed to you by the third parties that own such code, 
+not by Inspired Technologies.
