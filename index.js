@@ -158,10 +158,11 @@ module.exports = function (app) {
                         influxConfig.currentForecast = u.values[0].value
                     else {
                         if (path.includes('environment.forecast')) {
-                            if (app.getSelfPath('environment.forecast.time').value===WAITING)
+                            let fctime = app.getSelfPath('environment.forecast.time')
+                            if (!fctime || fctime.value===null || fctime.value===WAITING)
                                 timestamp = influxConfig.currentForecast
                             else
-                                timestamp = app.getSelfPath('environment.forecast.time').value
+                                timestamp = fctime.value
                             }
                         else if (barometer.isSubscribed(path))
                         {

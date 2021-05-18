@@ -65,16 +65,20 @@ function toSignalK(units, value) {
     } else if ( units === 'kmh' ) {
         value = value / 3.6
         skUnits = "m/s"
+    } else if ( units === 'm s-1' ) {
+        value = value * 1.0
+        skUnits = "m/s"
     } else if ( units === 'kn' ) {
         value = value / 1.943844
         skUnits = "m/s"
     } else if ( units.includes('Bft') ) {
         value = fromBeaufort(value, (units==='BftMin' ? 'min' : units==='BftMax' ? 'max' : ''))
         skUnits = "m/s"
-    } else if ( units === '°' ) {
+    } else if ( units === '°' || units === 'degrees' ) {
         value = value * (Math.PI/180.0)
         skUnits = 'rad'
     } else if ( units === 'Pa' ) {
+        value = value * 1.0
         skUnits = "Pa"
     } else if ( units === 'hPa' || units=== 'mbar' ) {
         value = value * 100
@@ -86,8 +90,18 @@ function toSignalK(units, value) {
         value = value * 1852
         skUnits = "m"
     } else if ( units === 'm' ) {
+        value = value * 1.0
         skUnits = "m"
-    } else if ( units === 'unixdate' ) {
+    } else if ( units === 'mm' ) {
+        value = value * 1.0
+        skUnits = "mm"
+    } else if ( units === 'J kg-1' ) {
+        value = value * 1.0
+        skUnits = "J/kg"
+    } else if ( units === 'kg m-2 s-1' ) {
+        value = value * 1.0
+        skUnits = "kg/s/qm"
+    } else if ( units === 'unixdate' || units === 'unix' ) {
         value = new Date(value * 1000).toISOString()
         skUnits = ""
     }
@@ -97,10 +111,27 @@ function toSignalK(units, value) {
 // converts from SignalK-Units
 function toTarget(skunit, value, target, precision) {
     let unit
-    if ( skunit === 'ratio' && target===undefined ) {
-        value = value * 100
-        unit = ''
+    if ( target==='geoJson' || target==='latLng' ) {
+        let geo = []
+        if (value.longitude && value.latitude && target==='geoJson') {
+            geo.push(typeof precision==='number' ? value.longitude.toFixed(precision) : value.longitude)    
+            geo.push(typeof precision==='number' ? value.latitude.toFixed(precision) : value.latitude)
+            if (value.altitude) geo.push(value.altitude) 
+            value = geo
+        } else if (value.longitude && value.latitude && target==='latLng') {
+            geo.push(typeof precision==='number' ? value.latitude.toFixed(precision) : value.latitude)
+            geo.push(typeof precision==='number' ? value.longitude.toFixed(precision) : value.longitude)    
+            if (value.altitude) geo.push(value.altitude) 
+            value = geo
+        }   
+        else
+            value = null
+        unit = target
+    } else if ( skunit === 'ratio' && ( target===undefined || target==='%' ) ) {
+        value = value * 100.0
+        unit = target===undefined ? '' : '%'
     } else if ( skunit === 'ratio' && ( target==='decimal' || target==='number' ) ) {
+        value = value * 1.0
         unit = ''
     } else if ( skunit === 'K' && (target===undefined) ) {
         value = value
@@ -136,7 +167,8 @@ function toTarget(skunit, value, target, precision) {
     } else if ( skunit === 'Pa' && (target ==='atm') ) {
         value = value / 101325
         unit = target        
-    } else if ( skunit === 'm' && target === undefined ) {
+    } else if ( skunit === 'm' && (target ==='m' || target === undefined) ) {
+        value = value * 1.0
         unit = 'm'
     } else if ( skunit === 'm' && target === 'km' ) {
         value = value / 1000
@@ -153,16 +185,26 @@ function toTarget(skunit, value, target, precision) {
     } else {
         unit = skunit
     }
-    if (typeof precision==='number')
-        value = value.toFixed(precision)
+    if (target!=='geoJson' && target!=='latLng' && typeof precision==='number')
+        value = parseFloat(value.toFixed(precision))
     return { value: value, units: unit }
 }
+
+function toDegreesMinutesAndSeconds(coordinate) {
+    var absolute = Math.abs(coordinate);
+    var degrees = Math.floor(absolute);
+    var minutesNotTruncated = (absolute - degrees) * 60;
+    var minutes = Math.floor(minutesNotTruncated);
+    var seconds = Math.floor((minutesNotTruncated - minutes) * 60);
+    return degrees + "\°" + minutes + "\'" + seconds +"\"";
+  }
 
 module.exports = {
     toBeaufort,
     fromBeaufort,
     toSeaLevel,
     toStationAltitude,
+    toDegreesMinutesAndSeconds,
     toSignalK,
     toTarget
-}     
+}

@@ -123,7 +123,7 @@ function post (influxdb, metrics, config, log) {
                     let point = new Point(p.name)
                         .tag(Object.keys(p.tags)[0], p.tags[Object.keys(p.tags)[0]])
                         .timestamp(p.timestamp)
-                    if (parseFloat(p.fields[Object.keys(p.fields)[0]])!==NaN) 
+                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(Object.keys(p.fields)[0]).toString()!=='NaN') 
                         point.floatField(Object.keys(p.fields)[0], parseFloat(p.fields[Object.keys(p.fields)[0]]))
                     else
                         point.stringField(Object.keys(p.fields)[0], p.fields[Object.keys(p.fields)[0]])
