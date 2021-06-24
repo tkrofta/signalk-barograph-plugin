@@ -207,10 +207,10 @@ function prepareUpdate(type) {
         ];
         case 'prediction': return [
             buildDeltaUpdate(type, barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
-            buildDeltaUpdate(type, predictionWind, latest.prediction !== null ? latest.prediction.beaufort : noData),
+            buildDeltaUpdate(type, predictionWind, latest.prediction !== null ? latest.prediction.beaufort.force : noData),
             buildDeltaUpdate(type, predictionWindDir, latest.prediction !== null ? latest.prediction.quadrant : noData),
-            buildDeltaUpdate(type, predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort, 'min')).value : noVal),
-            buildDeltaUpdate(type, predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort, 'max')).value : noVal),
+            buildDeltaUpdate(type, predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort.force, 'min')).value : noVal),
+            buildDeltaUpdate(type, predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort.force, 'max')).value : noVal),
             buildDeltaUpdate(type, predictionFront, latest.prediction !== null ? latest.prediction.front: { key: 'N/A' }),
         ];
         case 'meta-trend': return [
