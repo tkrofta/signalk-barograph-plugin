@@ -126,7 +126,7 @@ function onPressureUpdate(value) {
         latest.pressure = { value, time: Date.now() }
         predictions.addPressure(new Date(latest.pressure.time), value, 
             (latest.altitude!==null ? latest.altitude.value : null),
-            (latest.temperature!==null ? units.toTarget('K', latest.temperature.value, 'deg').value : null),
+            (latest.temperature!==null ? latest.temperature.value : null),
             null)
         log({ pressure: latest.pressure.value, altitude: (latest.altitude!==null ? latest.altitude.value : null), 
             temperature: (latest.temperature!==null ? latest.temperature.value : null), wind: null });
@@ -154,6 +154,7 @@ function onElevationUpdate(value) {
 }
 
 function onPositionUpdate(value) {
+    let current = latest.hemisphere 
     if (value === null) 
     {
         log("Cannot add null value as position - defaulting to northern hemisphere");
@@ -163,7 +164,8 @@ function onPositionUpdate(value) {
     {
         latest.hemisphere = value.latitude < 0 ? 'S' : 'N';
     }
-    log("Hemisphere set to "+latest.hemisphere);
+    if (current!==latest.hemisphere)
+        log("Hemisphere set to "+latest.hemisphere);
 }
 
 function predictWindSpeed(prediction, calc) {

@@ -4,10 +4,6 @@
 .github
 #pathconfig - will be recreated
 pathconfig.json
-influx-v2.setup
-weather
-visualization
-
 
 # Logs
 logs

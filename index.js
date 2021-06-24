@@ -204,7 +204,15 @@ module.exports = function (app) {
             configFile = saveconfig(app.getDataDirPath(), options.pathConfig, [])
             app.savePluginOptions(options, () => {app.debug('Plugin options saved')});
         }
-        influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
+        try {
+            influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
+        }
+        catch {
+            let paths = influx.config('environment', 10*1000)
+            influx.config('navigation', 0).forEach(p => paths.push(p))
+            configFile = saveconfig(app.getDataDirPath(), options.pathConfig, paths)
+            influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
+        }
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
         influxConfig.bucket = (options.influxBucket ? options.influxBucket : '') 
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
