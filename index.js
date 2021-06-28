@@ -84,7 +84,7 @@ module.exports = function (app) {
                 var options = app.readPluginOptions();
                 saveconfig(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
             } 
-            else 
+            if (influxConfig.paths.length>0)
             {
                 influxConfig.paths.forEach(p => {
                     if (p.hasOwnProperty('config'))
@@ -94,9 +94,10 @@ module.exports = function (app) {
                     if (p.hasOwnProperty('trend')) {
                         barometer.addSubcriptionHandler(p.trend, p.path)
                         appconfig.addSubcription(p.trend, p.path)
-                        // hack: server version > 1.39
-                        if (p.trend==='altitude' && app.getSelfPath(p.path).value) {
-                            barometer.onElevationUpdate(app.getSelfPath(p.path).value)
+                        // hack: server version > 1.39, startup timing issue
+                        let val = app.getSelfPath(p.path)
+                        if (p.trend==='altitude' && val && val.value) {
+                            barometer.onElevationUpdate(val.value)
                         }
                     }
                 });
