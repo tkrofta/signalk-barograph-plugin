@@ -181,7 +181,7 @@ function predictWindSpeed(prediction, calc) {
                 return forecast[0]
             else
                 return forecast[1]
-        } else if (prediction.include('+')) {
+        } else if (prediction.includes('+')) {
             forecast = prediction.replace('F', '').split('+')
             if (calc==='min')
                 return forecast[0]
