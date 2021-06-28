@@ -203,7 +203,7 @@ function prepareUpdate(type) {
         case 'trend': return [
             buildDeltaUpdate(type, barometerTrend, latest.trend !== null ? { severity: latest.trend.severity, tendency: latest.trend.tendency, changerate: latest.trend.trend } : {}),
             buildDeltaUpdate(type, trendDifference, latest.trend !== null ? units.toSignalK('Pa', latest.trend.difference).value : noVal),
-            buildDeltaUpdate(type, trendPeriod, latest.trend !== null ? (-1)*latest.trend.period*60 : noVal)
+            buildDeltaUpdate(type, trendPeriod, latest.trend !== null ? Math.abs(latest.trend.period*60) : noVal)
         ];
         case 'prediction': return [
             buildDeltaUpdate(type, barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
