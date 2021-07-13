@@ -74,12 +74,13 @@ function config(root, interval) {
                     { path: 'environment.forecast.weather.visibility', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.clouds', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" }                    
+                    { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir" }                 
                 ];
         case 'navigation':
                 return [
-                    { path: 'navigation.gnss.antennaAltitude', period:900000, policy: 'fixed', trend:'altitude' },
-                    { path: 'navigation.position', policy: 'instant', trend: 'position' }
+                    { path: 'navigation.gnss.antennaAltitude', period:60*interval, policy: 'fixed', trend:'altitude' },
+                    { path: 'navigation.position', period:60*interval, policy: 'fixed', trend: 'position' }
                 ]
         default:        
             return [] 

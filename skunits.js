@@ -156,7 +156,7 @@ function toTarget(skunit, value, target, precision) {
     } else if ( skunit === 'm/s' && (target==='Bft') ) {
         value = toBeaufort(value)
         unit = target
-    } else if ( skunit ==='rad' && (target === '°' || target==='') ) {
+    } else if ( skunit ==='rad' && (target === '°' || target==='deg' || target==='') ) {
         value = value * (180.0/Math.PI)
         unit = '°'
     } else if ( skunit === 'Pa' && (target===undefined) ) {

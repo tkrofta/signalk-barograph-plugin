@@ -22,10 +22,11 @@ let refreshRate = null
 
 let currentPressure = '';
 let currentTemperature = '';
+let currentWindDirection = ''
 let navigationAltitude = '';
 let navigationPosition = '';
 function isSubscribed(path) {
-    return (path===currentPressure || path===currentTemperature || path===navigationAltitude || path===navigationPosition)
+    return (path===currentPressure || path===currentTemperature || path===navigationAltitude || path===navigationPosition || path===currentWindDirection)
 }
 
 let pathPrefix = "environment.barometer.";
@@ -45,6 +46,7 @@ const latest = {
     hemisphere: 'N',
     pressure: null,
     temperature: null,
+    winddir: null,
     altitude: null,
     trend: null,
     prediction: null,
@@ -62,6 +64,10 @@ function addSubcriptionHandler (type, path) {
         case 'temperature':
             currentTemperature = path
             handler = { path: currentTemperature, handle: (value) => onTemperatureUpdate(value) }
+            break;
+        case 'winddir':
+            currentWindDirection = path
+            handler = { path: currentWindDirection, handle: (value) => onWindDirUpdate(value) }
             break;
         case 'altitude':
             navigationAltitude = path
@@ -127,9 +133,10 @@ function onPressureUpdate(value) {
         predictions.addPressure(new Date(latest.pressure.time), value, 
             (latest.altitude!==null ? latest.altitude.value : null),
             (latest.temperature!==null ? latest.temperature.value : null),
-            null)
+            (latest.winddir!==null ? units.toTarget('rad', latest.winddir.value, 'deg', 0).value : null))
         log({ pressure: latest.pressure.value, altitude: (latest.altitude!==null ? latest.altitude.value : null), 
-            temperature: (latest.temperature!==null ? latest.temperature.value : null), wind: null });
+            temperature: (latest.temperature!==null ? latest.temperature.value : null), 
+            winddir: (latest.winddir!==null ? Math.round(latest.winddir.value*100)/100 : null) });
     }
 }
 
@@ -138,6 +145,13 @@ function onTemperatureUpdate(value) {
         log("Cannot add null value as temperature - ignoring ...");
     else if (value!=="waiting ...")
         latest.temperature = { value, time: Date.now() }
+}
+
+function onWindDirUpdate(value) {
+    if (value === null) 
+        log("Cannot add null value as wind direction - ignoring ...");
+    else if (value!=="waiting ...")
+        latest.winddir = { value, time: Date.now() }
 }
 
 function onElevationUpdate(value) {
