@@ -1,15 +1,15 @@
 {
   "name": "signalk-barograph",
-  "version": "0.4.0",
+  "version": "0.5.1",
   "description": "SignalK plugin to influx environment data & Barograph to visualize atmospheric pressure",
   "main": "index.js",
   "dependencies": {
-    "@influxdata/influxdb-client": "^1.10.0",
-    "@influxdata/influxdb-client-apis": "^1.10.0",
+    "@influxdata/influxdb-client": "^1.25.0",
+    "@influxdata/influxdb-client-apis": "^1.25.0",
     "@octokit/core": "^3.5.1",
     "@signalk/signalk-schema": "^1.6.0",
-    "axios": "^0.21.1",
-    "barometer-trend": "^2.2.0",
+    "axios": "^0.21.4",
+    "barometer-trend": "^2.2.5",
     "debug": "^4.3.1"
   },
   "devDependencies": {

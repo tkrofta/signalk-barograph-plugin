@@ -25,7 +25,7 @@ function init(uri, user, pwd, log) {
   
 
 let subscriptions = {};
-function addSubcription (type, path) {
+function addSubscription (type, path) {
     subscriptions[type] = path;
 }
 
@@ -39,7 +39,7 @@ function setAppUserData (log) {
     let data = { subscriptions, influx };
     let config = {
       method: 'post',
-      url: selfuri+'/signalk/v1/applicationData/user/signalk_barograph/0.1.0',
+      url: selfuri+'/signalk/v1/applicationData/user/signalk_barograph/0.2.0',
       headers: { 
         'Content-Type': 'application/json',
         'Cookie': 'JAUTHENTICATION='+token 
@@ -62,7 +62,7 @@ function setAppUserData (log) {
 
 module.exports = {
     init,
-    addSubcription,
+    addSubscription,
     addInflux,
     setAppUserData
 }

@@ -1,7 +1,6 @@
 /*!
- * Copyright © 2021 Inspired Technologies GmbH. All Rights Reserved.
- * 
  * The buffer module from node.js, for the browser.
+ *
  * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
  * @license  MIT
  */

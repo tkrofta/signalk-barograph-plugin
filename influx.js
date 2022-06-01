@@ -64,10 +64,10 @@ function config(root, interval) {
                     { path: 'environment.forecast.temperature.feelslike', period: 900*interval, policy: "fixed" },
                     { path: 'environment.inside.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.pressure', period: 60*interval, policy: "instant", minPeriod: interval, trend: "pressure" },
-                    { path: 'environment.forecast.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.pressure', period: 900*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.inside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.humidity', period: 900*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.forecast.description', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.wind.direction', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.wind.speed', period: 900*interval, policy:"fixed" },
@@ -95,7 +95,7 @@ function post (influxdb, metrics, config, log) {
     // [Required] Organization | Empty for 1.8.x
     // [Required] Bucket | Database/Retention Policy
     // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
-    const writeAPI = influxdb.getWriteApi(config.organization, config.bucket, 'ms')
+    const writeAPI = influxdb.getWriteApi(config.organization, config.write, 'ms')
     // TODO: setup default tags for all writes through this API
     writeAPI.useDefaultTags({id: config.id})
     

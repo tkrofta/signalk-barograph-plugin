@@ -92,8 +92,8 @@ module.exports = function (app) {
                     if (p.hasOwnProperty('convert'))
                         valueConfig[p.path] = p.convert                                         
                     if (p.hasOwnProperty('trend')) {
-                        barometer.addSubcriptionHandler(p.trend, p.path)
-                        appconfig.addSubcription(p.trend, p.path)
+                        barometer.addSubscriptionHandler(p.trend, p.path)
+                        appconfig.addSubscription(p.trend, p.path)
                         // hack: server version > 1.39, startup timing issue
                         let val = app.getSelfPath(p.path)
                         if (p.trend==='altitude' && val && val.value) {
@@ -215,7 +215,9 @@ module.exports = function (app) {
             influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
         }
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
-        influxConfig.bucket = (options.influxBucket ? options.influxBucket : '') 
+        influxConfig.write = (options.influxBucket ? options.influxBucket : '')
+        influxConfig.read = (options.influxRead ? options.influxRead : (options.influxBucket ? options.influxBucket : ''))
+        influxConfig.retention = (options.writeRetention ? options.writeRetention : 3)
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
         appconfig.addInflux('id', influxConfig.id)
 
@@ -227,7 +229,9 @@ module.exports = function (app) {
         appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
         appconfig.addInflux('token', options.influxToken)
         appconfig.addInflux('org', influxConfig.organization)
-        appconfig.addInflux('bucket', influxConfig.bucket)
+        appconfig.addInflux('write', influxConfig.write)
+        appconfig.addInflux('read', influxConfig.read)
+        appconfig.addInflux('retention', influxConfig.retention)
         appconfig.addInflux('username', options.influxToken.includes(':') ? options.influxToken.split(':')[0] : '') // not relevant for >2.x
         appconfig.addInflux('password', options.influxToken.includes(':') ? options.influxToken.split(':')[1] : '') // not relevant for >2.x
         let connectionString = []
@@ -284,8 +288,13 @@ module.exports = function (app) {
             },
         "influxBucket": {
                 type: 'string',
-                title: 'InfluxDB Bucket',
+                title: 'InfluxDB Write Bucket',
                 description: 'v2.x: [bucket]; v1.8.x: [database/retentionpolicy]'
+            },
+        "influxRead": {
+                type: 'string',
+                title: 'InfluxDB Read Bucket',
+                description: 'v2.x: [bucket]; v1.8.x: [database/retentionpolicy]',
             },
         "selfRef": {
                 type: 'string',
@@ -304,7 +313,13 @@ module.exports = function (app) {
                 title: 'Write Interval',
                 description: 'frequency of batched write to InfluxDB in s',
                 default: 30
-            }
+            },
+        "writeRetention": {
+                type: 'number',
+                title: 'Write Bucket Retention',
+                description: 'if entered (hours), read bucket will only be used for queries greater than write retention period',
+                default: 3
+            },
         }
     };
 

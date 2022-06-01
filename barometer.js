@@ -54,7 +54,7 @@ const latest = {
 }
 
 let subscriptionHandler = []
-function addSubcriptionHandler (type, path) {
+function addSubscriptionHandler (type, path) {
     let handler
     switch (type) {
         case 'pressure':
@@ -272,7 +272,7 @@ function lastUpdateWithin(interval) {
 }
 
 module.exports = {
-    addSubcriptionHandler,    
+    addSubscriptionHandler,    
     isSubscribed,
     preLoad,
     onDeltaUpdate,
