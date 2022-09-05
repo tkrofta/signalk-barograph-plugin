@@ -75,7 +75,7 @@ function config(root, interval) {
                     { path: 'environment.forecast.weather.clouds', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir" }                 
+                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>true.wind.direction" }                 
                 ];
         case 'navigation':
                 return [
