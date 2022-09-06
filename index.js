@@ -165,8 +165,8 @@ module.exports = function (app) {
                             else
                                 timestamp = fctime.value
                             }
-                        else if (barometer.isSubscribed(path))
-                        {
+                        else if (barometer.isSubscribed(u.values[0].path))
+                        {   // fix: subscription is on the original path 
                             barometer.onDeltaUpdate(u)
                         }
                         if (path.includes('environment'))
