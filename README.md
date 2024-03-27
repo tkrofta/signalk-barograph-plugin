@@ -117,7 +117,7 @@ For easy use within the app the plugin ejects a number of new `SignalK values`, 
 None of these are tracked within influx.
 
 ## LICENSE
-Copyright © 2021 Inspired Technologies GmbH. Rights Reserved.
+Copyright © 2024 Inspired Technologies GmbH. Rights Reserved.
 
 This product depends on software developed at SignalK (https://signalk.org/index.html).
 The Initial Developer of some parts of the framework are licensed under the Apache License, Version 2.0. 

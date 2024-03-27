@@ -104,6 +104,12 @@ function toSignalK(units, value) {
     } else if ( units === 'unixdate' || units === 'unix' ) {
         value = new Date(value * 1000).toISOString()
         skUnits = ""
+    } else if ( units === 'geoJson' ) {
+        value = { latitude: value[1], longitude: value[0] }
+        skUnits = ""
+    } else if ( units === 'latLng' ) {
+        value = { latitude: value[0], longitude: value[1] }
+        skUnits = ""
     }
     return { value: value, units: skUnits }
 }
@@ -182,10 +188,13 @@ function toTarget(skunit, value, target, precision) {
     } else if ( skunit === 'dt' && target === 's' ) {
         value = (new Date(value).getTime())/1000
         unit ='s'
+    } else if ( skunit === '{obj}' && target!==undefined && value.hasOwnProperty(target) ) {
+        unit = value[target].hasOwnProperty('unit') ? value[target].unit : ''
+        value = value[target].hasOwnProperty('value') ? value[target].value : value[target]
     } else {
         unit = skunit
     }
-    if (target!=='geoJson' && target!=='latLng' && typeof precision==='number')
+    if (typeof value==='number' && target!=='geoJson' && target!=='latLng' && typeof precision==='number')
         value = parseFloat(value.toFixed(precision))
     return { value: value, units: unit }
 }

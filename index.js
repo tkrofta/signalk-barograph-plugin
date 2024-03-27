@@ -1,5 +1,5 @@
 /* 
-   Copyright © 2021 Inspired Technologies GmbH. Rights Reserved.
+   Copyright © 2024 Inspired Technologies GmbH. Rights Reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -146,7 +146,8 @@ module.exports = function (app) {
                 return;
                 }
                 delta.updates.forEach(u => {
-                    if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || u.values[0].value==={})) {
+                    if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || 
+                        (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))) {
                         return;
                     }
                     const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
