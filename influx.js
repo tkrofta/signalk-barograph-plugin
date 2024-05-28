@@ -53,8 +53,8 @@ function config(root, interval) {
         case 'environment':
                 return [
                     { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
-                    { path: 'environment.forecast.time.sunrise', period:900*interval, policy:"fixed", convert: 'dt|>s' },
-                    { path: 'environment.forecast.time.sunset', period:900*interval, policy:"fixed", convert: 'dt|>s' },                
+                    { path: 'environment.sunlight.times.sunrise', period:900*interval, policy:"fixed", convert: 'dt|>s', config: 'sunlight.times|>forecast.time' },
+                    { path: 'environment.sunlight.times.sunset', period:900*interval, policy:"fixed", convert: 'dt|>s', config: 'sunlight.times|>forecast.time' },                
                     { path: 'environment.inside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.temperature', period: 60*interval, policy: "instant", minPeriod: interval, trend: "temperature" },
                     { path: 'environment.water.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
@@ -64,18 +64,23 @@ function config(root, interval) {
                     { path: 'environment.forecast.temperature.feelslike', period: 900*interval, policy: "fixed" },
                     { path: 'environment.inside.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.pressure', period: 60*interval, policy: "instant", minPeriod: interval, trend: "pressure" },
-                    { path: 'environment.forecast.pressure', period: 900*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.pressure', period: 900*interval, policy: "instant", minPeriod: interval,  },
                     { path: 'environment.inside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
                     { path: 'environment.outside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.humidity', period: 900*interval, policy: "instant", minPeriod: interval },
+                    { path: 'environment.forecast.relativeHumidity', period: 900*interval, policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
                     { path: 'environment.forecast.description', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.wind.direction', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.wind.speed', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.forecast.wind.gust', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.visibility', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.clouds', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
                     { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>true.wind.direction" }                 
+                    { path: 'environment.forecast.weather.code', period: 900*interval, policy:"fixed" },
+                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+                    { path: 'environment.outside.wind.direction', period:60*interval, policy :"instant", trend: "winddir" },
+                    { path: 'environment.outside.wind.speed', period:60*interval, policy :"instant"},
+                    { path: 'environment.outside.wind.gust', period:60*interval, policy :"instant"}              
                 ];
         case 'navigation':
                 return [

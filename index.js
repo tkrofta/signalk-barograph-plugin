@@ -119,7 +119,7 @@ module.exports = function (app) {
                     influx.buffer(metrics)
                     metrics = []
                 }
-                let updates = barometer.getTrendAndPredictions(influxConfig.loadFrequency*1000)
+                let updates = barometer.getTrendAndPredictions(2*influxConfig.loadFrequency*1000)
                 if (updates.length>0)
                     sendDelta(updates)
             }, influxConfig.loadFrequency*1000)
@@ -161,7 +161,9 @@ module.exports = function (app) {
                     else {
                         if (path.includes('environment.forecast')) {
                             let fctime = app.getSelfPath('environment.forecast.time')
-                            if (!fctime || fctime.value===null || fctime.value===WAITING)
+                            if (!fctime && !influxConfig.currentForecast)
+                                timestamp = new Date(Date.now()).toISOString()
+                            else if (!fctime || fctime.value===null || fctime.value===WAITING)
                                 timestamp = influxConfig.currentForecast
                             else
                                 timestamp = fctime.value
