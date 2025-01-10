@@ -135,52 +135,52 @@ module.exports = function (app) {
                 subscribe: influxConfig.paths
             };
 
-            app.subscriptionmanager.subscribe(
-            localSubscription,
-            unsubscribes,
-            subscriptionError => {
-                app.error('Error:' + subscriptionError);
-            },
-            delta => {
-                if (!delta.updates) {
-                return;
-                }
-                delta.updates.forEach(u => {
-                    if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || 
-                        (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))) {
-                        return;
+            app.subscriptionmanager.subscribe (
+                localSubscription,
+                unsubscribes,
+                subscriptionError => {
+                    app.error('Error:' + subscriptionError);
+                },
+                delta => {
+                    if (!delta.updates) {
+                    return;
                     }
-                    const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
-                    const values = (!valueConfig[path] ? u.values[0].value : 
-                        convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value )
-                    var timestamp = u.timestamp
-                    if (path==='environment.forecast.time')
-                        // conversion not required due to dt format change in openweather plugin (v0.5) 
-                        // influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
-                        influxConfig.currentForecast = u.values[0].value
-                    else {
-                        if (path.includes('environment.forecast')) {
-                            let fctime = app.getSelfPath('environment.forecast.time')
-                            if (!fctime && !influxConfig.currentForecast)
-                                timestamp = new Date(Date.now()).toISOString()
-                            else if (!fctime || fctime.value===null || fctime.value===WAITING)
-                                timestamp = influxConfig.currentForecast
-                            else
-                                timestamp = fctime.value
+                    delta.updates.forEach(u => {
+                        if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || 
+                            (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))) {
+                            return;
+                        }
+                        const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
+                        const values = (!valueConfig[path] ? u.values[0].value : 
+                            convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value )
+                        var timestamp = u.timestamp
+                        if (path==='environment.forecast.time')
+                            // conversion not required due to dt format change in openweather plugin (v0.5) 
+                            // influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
+                            influxConfig.currentForecast = u.values[0].value
+                        else {
+                            if (path.includes('environment.forecast')) {
+                                let fctime = app.getSelfPath('environment.forecast.time')
+                                if (!fctime && !influxConfig.currentForecast)
+                                    timestamp = new Date(Date.now()).toISOString()
+                                else if (!fctime || fctime.value===null || fctime.value===WAITING)
+                                    timestamp = influxConfig.currentForecast
+                                else
+                                    timestamp = fctime.value
+                                }
+                            else if (barometer.isSubscribed(u.values[0].path))
+                            {   // fix: subscription is on the original path 
+                                barometer.onDeltaUpdate(u)
                             }
-                        else if (barometer.isSubscribed(u.values[0].path))
-                        {   // fix: subscription is on the original path 
-                            barometer.onDeltaUpdate(u)
+                            if (path.includes('environment'))
+                            {
+                                const metric = influx.format(path, values, timestamp, source(u))
+                                if (metric!==null)
+                                    metrics.push(metric)
+                            }
                         }
-                        if (path.includes('environment'))
-                        {
-                            const metric = influx.format(path, values, timestamp, source(u))
-                            if (metric!==null)
-                                metrics.push(metric)
-                        }
-                    }
-                })
-            }
+                    })
+                }
             );
             app.setPluginStatus('Started');
             app.debug('Plugin started');
@@ -282,22 +282,22 @@ module.exports = function (app) {
         "influxToken": {
                 type: 'string',
                 title: 'InfluxDB Token',
-                description: 'v2.x: [token]; V1.8.x: [username:password]'
+                description: 'v2.x: [token]; V1.11.x: [username:password]'
             },
         "influxOrg": {
                 type: 'string',
                 title: 'InfluxDB Organisation',
-                description: 'v2.x: [required]; V1.8.x: [empty]'
+                description: 'v2.x: [required]; V1.11.x: [empty]'
             },
         "influxBucket": {
                 type: 'string',
                 title: 'InfluxDB Write Bucket',
-                description: 'v2.x: [bucket]; v1.8.x: [database/retentionpolicy]'
+                description: 'v2.x: [bucket]; v1.11.x: [database/retentionpolicy]'
             },
         "influxRead": {
                 type: 'string',
                 title: 'InfluxDB Read Bucket',
-                description: 'v2.x: [bucket]; v1.8.x: [database/retentionpolicy]',
+                description: 'v2.x: [bucket]; v1.11.x: [database/retentionpolicy]',
             },
         "selfRef": {
                 type: 'string',
