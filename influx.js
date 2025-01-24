@@ -14,8 +14,9 @@
     limitations under the License.
 */
 
-const {InfluxDB, Point} = require('@influxdata/influxdb-client')
-const {HealthAPI} = require('@influxdata/influxdb-client-apis')
+const { InfluxDB, Point } = require('@influxdata/influxdb-client')
+const { HealthAPI } = require('@influxdata/influxdb-client-apis')
+const { DateTime } = require('luxon')
 const cache = require('./cache')
 
 let cacheBuffer = []
@@ -151,19 +152,47 @@ function post (influxdb, metrics, config, log) {
     })
 }
 
-function format (path, values, skTimestamp, skSource) {
+function format (path, values, timestamp, skSource) {
     if (values === null){
         values = 0
     }
 
     //Set variables for metric
     let point = null
-    let timestamp = Date.parse(skTimestamp)
 
     // Get correct measurement based on path based on path config
     const skPath = path.split('.')
 
     switch (skPath.length) {
+        case 6:
+            // extended - use double tagging
+            switch (typeof values) {
+                case 'string':
+                    point = new Point(skPath[4])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[2], skPath[3])
+                    .stringField(skPath[5], values)    
+                    break;
+                case 'object':
+                    point = new Point(skPath[4])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[2], skPath[3])
+                    .stringField(skPath[5], JSON.stringify(values))  
+                    break;
+                case 'boolean':
+                    point = new Point(skPath[4])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[2], skPath[3])
+                    .booleanField(skPath[5], values)
+                    break;
+                default:
+                    point = new Point(skPath[4])
+                    .tag(skPath[0], skPath[1])
+                    .tag(skPath[2], skPath[3])
+                    .floatField(skPath[5], values)
+                    break;
+            }
+            break;
         case 5:
             // extended - use double tagging
             switch (typeof values) {
@@ -277,7 +306,7 @@ function format (path, values, skTimestamp, skSource) {
    
     if (skSource && skSource!=='')
         point.tag('source', skSource)
-    point.timestamp = (timestamp ? timestamp : Date.now())
+    point.timestamp = (timestamp ? timestamp.toMillis() : DateTime.utc().toMillis())
     return point
 }
 

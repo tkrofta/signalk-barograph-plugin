@@ -108,7 +108,11 @@ function getTrendAndPredictions (interval) {
                 latest.prediction = forecast.predictions
                 latest.description = forecast.predictions.pressureOnly
                 // +", Wind forecast: "+forecast.predictions.beaufort
-                log ({count: predictions.getPressureCount(), trend: latest.trend, prediction: latest.prediction })
+                log ({ 
+                    count: predictions.getPressureCount(), 
+                    trend: `${latest.trend.trend} ${latest.trend.tendency}`, 
+                    prediction: latest.prediction.pressureOnly 
+                })
                 // add Messages
                 prepareUpdate('description').forEach(m => messages.push(m))
                 prepareUpdate('trend').forEach(m => messages.push(m)) 

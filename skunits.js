@@ -236,13 +236,16 @@ function toTarget(skunit, value, target, precision) {
                 }
                 break;
             case 'dt':
-                if (target === 'ms' || target === 'unixdate' ) {
+                if (target === 'influx' || target === 'time' ) { // influx standard
+                    value = (new Date(value).getTime())*1000*1000
+                    unit ='ns'
+                } else if (target === 'ms' || target === 'unixdate' ) {
                     value = (new Date(value).getTime())
                     unit ='ms'
                 } else if (target === 's' ) {
                     value = (new Date(value).getTime())/1000
                     unit ='s'
-                } 
+                }
                 break;
             case 's':
                 if (target === 'ms' ) {

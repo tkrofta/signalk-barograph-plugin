@@ -1,5 +1,5 @@
 /* 
-   Copyright © 2024 Inspired Technologies GmbH. Rights Reserved.
+   Copyright © 2025 Inspired Technologies. Rights Reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 'use strict'
 const debug = require("debug")("signalk:signalk-barograph")
 const { getSourceId } = require('@signalk/signalk-schema')
+const { DateTime } = require('luxon');
 const influx = require("./influx")
 const barometer = require("./barometer")
 const appconfig = require ("./appconfig")
@@ -142,31 +143,29 @@ module.exports = function (app) {
                     app.error('Error:' + subscriptionError);
                 },
                 delta => {
-                    if (!delta.updates) {
-                    return;
-                    }
+                    if (!delta.updates) { return; }
+
                     delta.updates.forEach(u => {
                         if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || 
                             (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))) {
                             return;
                         }
                         const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
-                        const values = (!valueConfig[path] ? u.values[0].value : 
-                            convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value )
-                        var timestamp = u.timestamp
+                        const values = !valueConfig[u.values[0].path] ? u.values[0].value : 
+                            convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value
+                        var timestamp = DateTime.fromISO(u.timestamp)
                         if (path==='environment.forecast.time')
                             // conversion not required due to dt format change in openweather plugin (v0.5) 
-                            // influxConfig.currentForecast = new Date(u.values[0].value*1000).toISOString()
-                            influxConfig.currentForecast = u.values[0].value
+                            influxConfig.currentForecast = DateTime.fromISO(u.values[0].value)
                         else {
                             if (path.includes('environment.forecast')) {
                                 let fctime = app.getSelfPath('environment.forecast.time')
                                 if (!fctime && !influxConfig.currentForecast)
-                                    timestamp = new Date(Date.now()).toISOString()
+                                    ; // do nothing
                                 else if (!fctime || fctime.value===null || fctime.value===WAITING)
-                                    timestamp = influxConfig.currentForecast
+                                    timestamp = influxConfig.currentForecast.toUTC()
                                 else
-                                    timestamp = fctime.value
+                                    timestamp = DateTime.fromISO(fctime.value).toUTC()
                                 }
                             else if (barometer.isSubscribed(u.values[0].path))
                             {   // fix: subscription is on the original path 
