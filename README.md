@@ -53,9 +53,9 @@ Additional paths can be configured in order to make more environmental data avai
 
 `{"path":"environment.forecast.time","period":10000,"policy":"fixed"}`
 
-`{"path":"environment.forecast.time.sunrise","period":900000,"policy":"fixed","convert":"dt|>s"}`
+`{"path":"environment.forecast.time.sunrise","period":900000,"policy":"fixed","convert":"dt|>influx"}`
 
-`{"path":"environment.forecast.time.sunset","period":900000,"policy":"fixed","convert":"dt|>s"}`
+`{"path":"environment.forecast.time.sunset","period":900000,"policy":"fixed","convert":"dt|>influx"}`
 
 `{"path":"environment.inside.humidity","period":60000,"policy":"instant","minPeriod":30000}`
 
@@ -117,7 +117,7 @@ For easy use within the app the plugin ejects a number of new `SignalK values`, 
 None of these are tracked within influx.
 
 ## LICENSE
-Copyright © 2024 Inspired Technologies GmbH. Rights Reserved.
+Copyright © 2025 Inspired Technologies. Rights Reserved.
 
 This product depends on software developed at SignalK (https://signalk.org/index.html).
 The Initial Developer of some parts of the framework are licensed under the Apache License, Version 2.0. 
