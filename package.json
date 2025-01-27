@@ -12,9 +12,6 @@
     "debug": "^4.4.0",
     "luxon": "^3.5.0"
   },
-  "devDependencies": {
-    "@signalk/github-create-release": "^1.2.1"
-  },
   "scripts": {
     "test": "$NODE $npm_package_main",
     "create-release": "github-create-release --owner tkrofta --repository signalk-barograph",
