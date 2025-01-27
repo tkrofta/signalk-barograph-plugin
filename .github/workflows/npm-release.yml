@@ -42,7 +42,7 @@ jobs:
             New release to NPM
             - Tagged to ${{ steps.check.outputs.version }}
             - Release ${{ steps.check.outputs.version }} (${{ steps.check.outputs.type }})
-          draft: true
+          draft: false
           prerelease: false
           
       - name: Setup Node
