@@ -1,6 +1,6 @@
 /*
-    conversions-module - specifically for SignalK & Barograph
-    reqired by OpenWeather Map | Squid Sailing Forecasting modules
+    conversions-module - specifically for SignalK Barograph & Dashboard
+    also required by OpenWeather Map | Squid Sailing Forecasting modules
 */
 
 // Beaufort Wind Scale

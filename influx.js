@@ -1,5 +1,5 @@
-/* 
-    Copyright © 2024 Inspired Technologies GmbH. Rights Reserved.
+/*
+    Copyright © 2024 Inspired Technologies. Rights Reserved.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -28,19 +28,19 @@ function login(clientOptions, log) {
         log ("Influx Login successful")
         return influxDB
     } catch (err) {
-        log ("Error logging into influx: "+err)         
+        log ("Error logging into influx: "+err)
     }
 }
 
 async function health (influxDB, log, callback) {
     log("Determining influx health")
     const healthAPI = new HealthAPI(influxDB)
-    
+
     await healthAPI
     .getHealth()
     .then((result /* : HealthCheck */) => {
         log('Influx healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
-        return callback(influxDB, result) 
+        return callback(influxDB, result)
    })
     .catch(error => {
         log("HealthCheck Error: "+error)
@@ -50,46 +50,44 @@ async function health (influxDB, log, callback) {
 
 function config(root, interval) {
     if (interval<1000) interval = 1000
+    let hourly = Math.min(60*60*1000, 60*60*interval)
     switch (root) {
         case 'environment':
                 return [
                     { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
-                    { path: 'environment.sunlight.times.sunrise', period:900*interval, policy:"fixed", convert: 'dt|>s', config: 'sunlight.times|>forecast.time' },
-                    { path: 'environment.sunlight.times.sunset', period:900*interval, policy:"fixed", convert: 'dt|>s', config: 'sunlight.times|>forecast.time' },                
-                    { path: 'environment.inside.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.outside.temperature', period: 60*interval, policy: "instant", minPeriod: interval, trend: "temperature" },
-                    { path: 'environment.water.temperature', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.temperature', period: 900*interval, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.minimum', period: 900*interval, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.maximum', period: 900*interval, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.feelslike', period: 900*interval, policy: "fixed" },
-                    { path: 'environment.inside.pressure', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.outside.pressure', period: 60*interval, policy: "instant", minPeriod: interval, trend: "pressure" },
-                    { path: 'environment.forecast.pressure', period: 900*interval, policy: "instant", minPeriod: interval,  },
-                    { path: 'environment.inside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.outside.humidity', period: 60*interval, policy: "instant", minPeriod: interval },
-                    { path: 'environment.forecast.relativeHumidity', period: 900*interval, policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
-                    { path: 'environment.forecast.description', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.wind.direction', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.wind.speed', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.wind.gust', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.visibility', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.clouds', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.uvindex', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.icon', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.forecast.weather.code', period: 900*interval, policy:"fixed" },
-                    { path: 'environment.wind.directionTrue', period: 60*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
-                    { path: 'environment.outside.wind.direction', period:60*interval, policy :"instant", trend: "winddir" },
-                    { path: 'environment.outside.wind.speed', period:60*interval, policy :"instant"},
-                    { path: 'environment.outside.wind.gust', period:60*interval, policy :"instant"}              
+                    { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
+                    { path: 'environment.forecast.temperature', period: hourly, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.minimum', period: hourly, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.maximum', period: hourly, policy: "fixed" },
+                    { path: 'environment.forecast.today.temperature.minimum', period: hourly, policy: "fixed" },
+                    { path: 'environment.forecast.today.temperature.maximum', period: hourly, policy: "fixed" },
+                    { path: 'environment.forecast.temperature.feelslike', period: hourly, policy: "fixed" },
+                    { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
+                    { path: 'environment.forecast.pressure', period: hourly, policy: "fixed" },
+                    { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
+                    { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
+                    { path: 'environment.forecast.relativeHumidity', period: hourly, policy: "fixed", config: 'relativeHumidity|>humidity' },
+                    { path: 'environment.forecast.description', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.wind.direction', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.wind.speed', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.wind.gust', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.weather.visibility', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.weather.clouds', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.weather.uvindex', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.weather.icon', period: hourly, policy:"fixed" },
+                    { path: 'environment.forecast.weather.code', period: hourly, policy:"fixed" },
+                    { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+                    { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
+                    { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
+                    { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval }
                 ];
         case 'navigation':
                 return [
-                    { path: 'navigation.gnss.antennaAltitude', period:60*interval, policy: 'fixed', trend:'altitude' },
-                    { path: 'navigation.position', period:60*interval, policy: 'fixed', trend: 'position' }
+                    { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
+                    { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
                 ]
-        default:        
-            return [] 
+        default:
+            return []
     }
 }
 
@@ -104,7 +102,7 @@ function post (influxdb, metrics, config, log) {
     const writeAPI = influxdb.getWriteApi(config.organization, config.write, 'ms')
     // TODO: setup default tags for all writes through this API
     writeAPI.useDefaultTags({id: config.id})
-    
+
     // write point with the appropriate (client-side) timestamp
     // log(JSON.stringify(metrics))
     let measurements = {}
@@ -118,11 +116,11 @@ function post (influxdb, metrics, config, log) {
         .close()
         .then(() => {
             log(measurements)
-            cacheResult = cache.load(config.cacheDir, log) 
+            cacheResult = cache.load(config.cacheDir, log)
             if (cacheResult === false) {
                 return
             }
-            else {      
+            else {
                 let cached = cache.send(cacheResult, config.cacheDir)
                 log('Sending '+cached.length+' cached data points to be uploaded to influx')
                 let points = []
@@ -130,7 +128,7 @@ function post (influxdb, metrics, config, log) {
                     let point = new Point(p.name)
                         .tag(Object.keys(p.tags)[0], p.tags[Object.keys(p.tags)[0]])
                         .timestamp(p.timestamp)
-                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(p.fields[Object.keys(p.fields)[0]]).toString()!=='NaN') 
+                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(p.fields[Object.keys(p.fields)[0]]).toString()!=='NaN')
                         point.floatField(Object.keys(p.fields)[0], parseFloat(p.fields[Object.keys(p.fields)[0]]))
                     else
                         point.stringField(Object.keys(p.fields)[0], p.fields[Object.keys(p.fields)[0]])
@@ -171,13 +169,13 @@ function format (path, values, timestamp, skSource) {
                     point = new Point(skPath[4])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[2], skPath[3])
-                    .stringField(skPath[5], values)    
+                    .stringField(skPath[5], values)
                     break;
                 case 'object':
                     point = new Point(skPath[4])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[2], skPath[3])
-                    .stringField(skPath[5], JSON.stringify(values))  
+                    .stringField(skPath[5], JSON.stringify(values))
                     break;
                 case 'boolean':
                     point = new Point(skPath[4])
@@ -200,13 +198,13 @@ function format (path, values, timestamp, skSource) {
                     point = new Point(skPath[3])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[1], skPath[2])
-                    .stringField(skPath[4], values)    
+                    .stringField(skPath[4], values)
                     break;
                 case 'object':
                     point = new Point(skPath[3])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[1], skPath[2])
-                    .stringField(skPath[4], JSON.stringify(values))  
+                    .stringField(skPath[4], JSON.stringify(values))
                     break;
                 case 'boolean':
                     point = new Point(skPath[3])
@@ -228,12 +226,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField(skPath[3], values)    
+                    .stringField(skPath[3], values)
                     break;
                 case 'object':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField(skPath[3], JSON.stringify(values))  
+                    .stringField(skPath[3], JSON.stringify(values))
                     break;
                 case 'boolean':
                     point = new Point(skPath[2])
@@ -253,12 +251,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField('value', values)    
+                    .stringField('value', values)
                     break;
                 case 'object':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField('value', JSON.stringify(values))  
+                    .stringField('value', JSON.stringify(values))
                     break;
                 case 'boolean':
                     point = new Point(skPath[2])
@@ -278,12 +276,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[1])
                     .tag(skPath[0], '')
-                    .stringField('value', values)    
+                    .stringField('value', values)
                     break;
                 case 'object':
                     point = new Point(skPath[1])
                     .tag(skPath[0], '')
-                    .stringField('value', JSON.stringify(values))  
+                    .stringField('value', JSON.stringify(values))
                     break;
                 case 'boolean':
                     point = new Point(skPath[1])
@@ -303,7 +301,7 @@ function format (path, values, timestamp, skSource) {
             fields = null
             break;
     }
-   
+
     if (skSource && skSource!=='')
         point.tag('source', skSource)
     point.timestamp = (timestamp ? timestamp.toMillis() : DateTime.utc().toMillis())
