@@ -13,6 +13,7 @@ function init(uri, user, pwd, log) {
       }).then( (response) => {
         selfuri = uri
         token = response.data.token;
+        setAppUserData(log);
       })
       .catch( (error) => {
         token = ''
@@ -51,13 +52,18 @@ function setAppUserData (log) {
     .then( (response) => {
       log('Barograph Config')
       log({ path: subscriptions.pressure, influx: influx.url, config: response.status });
+      return true;
     })
     .catch( (error) => {
       log(error);
+      return false;
     });
   }
   else
+  {
     log('Barograph configuration error: invalid or empty token!')
+    return false;
+  }
 }
 
 module.exports = {

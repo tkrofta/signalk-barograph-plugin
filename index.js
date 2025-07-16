@@ -125,11 +125,6 @@ module.exports = function (app) {
                     sendDelta(updates)
             }, influxConfig.loadFrequency*1000)
             app.debug (`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
-
-            var appConfigTimer = setInterval( (log) => {
-                appconfig.setAppUserData(log);
-                clearInterval(appConfigTimer);               
-              }, 5000, log);
               
             let localSubscription = {
                 context: 'vessels.self', // Get data only for self context
