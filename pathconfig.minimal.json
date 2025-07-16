@@ -24,7 +24,7 @@
     {"path":"environment.wind.directionTrue","period":100000,"policy":"fixed","trend":"winddir","config":"wind.directionTrue|>outside.wind.direction"},
     {"path":"environment.outside.wind.direction","policy":"instant","minPeriod":10000,"trend":"winddir"},
     {"path":"environment.outside.wind.speed","policy":"instant","minPeriod":10000},
-    {"path":"environment.outside.wind.gust","policy":"instant","minPeriod":10000}
-    ,{"path":"navigation.gnss.antennaAltitude","period":60000,"policy":"fixed","trend":"altitude"},
+    {"path":"environment.outside.wind.gust","policy":"instant","minPeriod":10000},
+    {"path":"navigation.gnss.antennaAltitude","period":60000,"policy":"fixed","trend":"altitude"},
     {"path":"navigation.position","period":60000,"policy":"fixed","trend":"position"}
 ]
