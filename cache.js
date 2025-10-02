@@ -1,8 +1,8 @@
-const fs = require('fs');
-const path = require('path');
-const REQUEUED = 'requeued'
+const fs = require('fs')
+const REQUEUED = 'cached'
 
 function push (input, cacheDir, log) {
+    // store content to file
 	let data = JSON.stringify(input)
 	let fileName = Date.now() + '.' + REQUEUED
 	fs.writeFileSync(`${cacheDir}/${fileName}.json`, data);
@@ -10,15 +10,15 @@ function push (input, cacheDir, log) {
 }
 
 function load (cacheDir, log) {
-    //joining path of directory 
+    // joining path of directory 
 	const fileArray = []
 	const directoryPath = cacheDir;
-	//passsing directoryPath and callback function
+	// passsing directoryPath and callback function
 	files = fs.readdirSync(directoryPath)
 	for (i=0; i<files.length; i++)
 		if (files[i].includes(REQUEUED))
 			fileArray.push(files[i]) 
-	//console.log(files)
+	// determine cached files
 	if (fileArray.length == 0) {
 		log('No files in cache')
 		return false

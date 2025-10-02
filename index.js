@@ -22,8 +22,6 @@ const influx = require("./influx")
 const barometer = require("./barometer")
 const appconfig = require ("./appconfig")
 const convert = require("./skunits")
-const fs = require('fs')
-const path = require('path')
 const WAITING = 'waiting ...'
 
 
@@ -34,37 +32,15 @@ module.exports = function (app) {
         initialized: false
     };
 
-    plugin.id = 'signalk-barograph';
-    plugin.name = 'Barograph powered by SignalK';
-    plugin.description = 'Plugin to provide data & graphics for aggregated environmental information using influxdb (pressure, temperature, humidity)';
+    plugin.id = 'signalk-barograph'
+    plugin.name = 'Barograph powered by SignalK'
+    plugin.description = 'Plugin to provide data & graphics for aggregated environmental information using influxdb (pressure, temperature, humidity)'
 
-    var unsubscribes = [];
-    let timerId;
-    let metrics;
+    var unsubscribes = []
+    let timerId
+    let metrics
     let pathConfig = {}
     let valueConfig = {}
-    
-    function saveconfig(dir, file, content) {
-        fs.writeFileSync(
-            path.join(dir, file),
-            JSON.stringify(content).concat("\n"), (err) => {
-              if (err) throw err;
-              return null
-            }
-          )
-        return file
-    }
-
-    function reconfig(path, config) {
-
-        if (config.includes('|>')) {
-            // replace
-            const param = config.split('|>')
-            return path.replace(param[0], param[1])
-        }
-
-        return null
-    }
 
     function source(update) {
         if (update['$source']) {
@@ -77,19 +53,27 @@ module.exports = function (app) {
 
     function subscribe(influxDB, result) {
         if (influxConfig.initialized && result.status === 'pass' ) {
-
+            // ready to subscribe
+            app.debug({
+                organization: influxConfig.organization,
+                buckets: {
+                    write: influxConfig.write,
+                    read: influxConfig.read
+                }
+            })
+            //configure paths
             if (influxConfig.paths.length===0) {
                 // Reconfig subscriptions                
                 influxConfig.paths = influx.config('environment', 10*1000)
                 influx.config('navigation', 0).forEach(p => influxConfig.paths.push(p))
                 var options = app.readPluginOptions();
-                saveconfig(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
+                influx.save(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
             } 
             if (influxConfig.paths.length>0)
             {
                 influxConfig.paths.forEach(p => {
                     if (p.hasOwnProperty('config'))
-                        pathConfig[p.path] = reconfig(p.path, p.config)
+                        pathConfig[p.path] = influx.reconfig(p.path, p.config)
                     if (p.hasOwnProperty('convert'))
                         valueConfig[p.path] = p.convert                                         
                     if (p.hasOwnProperty('trend')) {
@@ -103,7 +87,7 @@ module.exports = function (app) {
                     }
                 });
             }
-
+            // preload barometer
             let preload = barometer.preLoad()
             if (preload)
             {
@@ -112,11 +96,11 @@ module.exports = function (app) {
                     sendMeta(preload.meta)
             }
             app.setPluginStatus('Initialized');
-
+            // ready to push data
             timerId = setInterval(() => {
                 app.debug (`Sending ${metrics.length} data points to be uploaded to influx`)
                 if (metrics.length !== 0) {
-                    influx.post(influxDB, metrics, influxConfig, log)
+                    influx.post(influxDB, metrics, influxConfig)
                     influx.buffer(metrics)
                     metrics = []
                 }
@@ -138,17 +122,16 @@ module.exports = function (app) {
                     app.error('Error:' + subscriptionError);
                 },
                 delta => {
-                    if (!delta.updates) { return; }
-
+                    if (!Array.isArray(delta.updates)) 
+                      return
                     delta.updates.forEach(u => {
-                        if (!u.values || u.values[0].path===undefined || (u.values[0].value===WAITING || u.values[0].value===null || 
-                            (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))) {
-                            return;
-                        }
-                        const path = (pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path)
+                        if (!u.values || u.values[0].path==='' || u.values[0].value===WAITING || u.values[0].value===null || 
+                            (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))
+                            return
+                        const path = pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path
                         const values = !valueConfig[u.values[0].path] ? u.values[0].value : 
                             convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value
-                        var timestamp = DateTime.fromISO(u.timestamp)
+                        var timestamp = DateTime.fromISO(u.timestamp).toUTC()
                         if (path==='environment.forecast.time')
                             // conversion not required due to dt format change in openweather plugin (v0.5) 
                             influxConfig.currentForecast = DateTime.fromISO(u.values[0].value)
@@ -193,13 +176,12 @@ module.exports = function (app) {
         app.setPluginStatus('Initializing');
 
         metrics = []
-        influx.cacheBuffer = []
         influxConfig.cacheDir = app.getDataDirPath()
         var configFile = options.pathConfig
-        if (options.pathConfig===undefined) 
+        if (!options.pathConfig)
         {   
             options.pathConfig = 'pathconfig.json'
-            configFile = saveconfig(app.getDataDirPath(), options.pathConfig, [])
+            configFile = influx.save(app.getDataDirPath(), options.pathConfig, [])
             app.savePluginOptions(options, () => {app.debug('Plugin options saved')});
         }
         try {
@@ -208,7 +190,7 @@ module.exports = function (app) {
         catch {
             let paths = influx.config('environment', 10*1000)
             influx.config('navigation', 0).forEach(p => paths.push(p))
-            configFile = saveconfig(app.getDataDirPath(), options.pathConfig, paths)
+            configFile = influx.save(app.getDataDirPath(), options.pathConfig, paths)
             influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
         }
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
@@ -222,7 +204,7 @@ module.exports = function (app) {
             url: options.influxUri,         // get from options
             token: options.influxToken,     // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
-        }, log)
+        }, influxConfig.cacheDir, app.debug)
         appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
         appconfig.addInflux('token', options.influxToken)
         appconfig.addInflux('org', influxConfig.organization)
@@ -242,8 +224,8 @@ module.exports = function (app) {
         } else {
             connectionString=options.selfRef.split('|')
         }
-        appconfig.init(connectionString[0], connectionString[1], connectionString[2], log)
-        influxConfig.initialized = influx.health(influxDB, log, subscribe)
+        appconfig.init(connectionString[0], connectionString[1], connectionString[2], app.debug)
+        influxConfig.initialized = influx.health(influxDB, subscribe)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         // TODO: if configured
         barometer.init(app.debug, options["barometer"], influxConfig.loadFrequency)
@@ -344,8 +326,6 @@ module.exports = function (app) {
             ]   
         })
     }
-
-    function log(msg) { app.debug(msg); }
 
     return plugin;
 };

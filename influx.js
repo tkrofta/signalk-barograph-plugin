@@ -18,34 +18,24 @@ const { InfluxDB, Point } = require('@influxdata/influxdb-client')
 const { HealthAPI } = require('@influxdata/influxdb-client-apis')
 const { DateTime } = require('luxon')
 const cache = require('./cache')
+const fs = require('fs')
+const path = require('path')
+const BatchSize = 500
 
+let log
+let cacheDir = ''
 let cacheBuffer = []
 
-function login(clientOptions, log) {
-    try {
-        const influxDB = new InfluxDB(clientOptions)
-
-        log ("Influx Login successful")
-        return influxDB
-    } catch (err) {
-        log ("Error logging into influx: "+err)
-    }
+function buffer (metrics) {
+    metrics.forEach(m => cacheBuffer.push(m))
 }
 
-async function health (influxDB, log, callback) {
-    log("Determining influx health")
-    const healthAPI = new HealthAPI(influxDB)
-
-    await healthAPI
-    .getHealth()
-    .then((result /* : HealthCheck */) => {
-        log('Influx healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
-        return callback(influxDB, result)
-   })
-    .catch(error => {
-        log("HealthCheck Error: "+error)
-        return false
-    })
+function flush (metrics) {
+    if (metrics) {
+      buffer(metrics)
+      cache.push(cacheBuffer, cacheDir, log)
+    }
+    return []
 }
 
 function config(root, interval) {
@@ -91,36 +81,127 @@ function config(root, interval) {
     }
 }
 
-function buffer(metrics) {
-    cacheBuffer = metrics
+function reconfig (path, config) {
+    if (config.includes(':')){
+      const param = config.split(':')
+      const res = reconfig(path, param[0])
+      return reconfig(res, param[1]) 
+    }
+    else if (config.includes('|>')) {
+      // replace
+      const param = config.split('|>')
+      return path.replace(param[0], param[1])
+    } else if (config.includes('+>')) {
+      // add
+      const param = config.split('+>')
+      return param[0]+path+"."+param[1]
+    } else if (config.includes('~')) {
+      // switch+embed
+      const param = config.split('~')
+      const rotate = '*.'+path.split('.*')[0]+path.split('.*')[1]
+      return param[0]+rotate+param[1]
+    } else if (config.includes('^')) {
+      // lookup
+      return config    
+    }
+    return null
 }
 
-function post (influxdb, metrics, config, log) {
+function match (paths, actual)
+{
+    if (!Array.isArray(paths))
+        return ''
+
+    let found = ''
+    paths.forEach(p => {
+        let p1 = p.split('.')
+        let p2 = actual.split('.')
+        let i = 0
+
+        while (i<p1.length)
+        {
+            if (p1[i]!=='*' && p1[i]!==p2[i])
+                break;
+            if (i===p1.length-1)
+                found = p;
+            i++
+        }
+    })
+
+    return found
+}
+
+function save (dir, file, content) {
+    fs.writeFileSync(
+        path.join(dir, file),
+        JSON.stringify(content).concat("\n"), (err) => {
+          if (err) throw err;
+          return null
+        }
+      )
+    return file
+}
+
+function check (dir, file) {
+    return fs.existsSync(path.join(dir, file));
+}
+
+function login (clientOptions, cachedir, debug) {
+    log = debug
+    try {
+        const influxDB = new InfluxDB(clientOptions)
+        cacheDir = cachedir
+        log("Influx Login successful")
+        return influxDB
+    } catch (err) {
+        log("Error logging into influx: "+err)         
+    }
+}
+
+async function health (influxDB, callback) {
+    if (!influxDB) {
+        log("Influx healthCheck: No client!")
+        return false
+    }
+
+    log("Determining influx health")
+    const healthAPI = new HealthAPI(influxDB)
+    
+    await healthAPI
+    .getHealth()
+    .then((result /* : HealthCheck */) => {
+        log('Influx healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
+        return callback(influxDB, result) 
+   })
+    .catch(error => {
+        log("HealthCheck "+error)
+        return false
+    })
+}
+
+function post (influxdb, metrics, config) {
     // [Required] Organization | Empty for 1.8.x
-    // [Required] Bucket | Database/Retention Policy
+    // [Required] Bucket | Database/Retention Policy 
     // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
     const writeAPI = influxdb.getWriteApi(config.organization, config.write, 'ms')
-    // TODO: setup default tags for all writes through this API
     writeAPI.useDefaultTags({id: config.id})
-
+    
     // write point with the appropriate (client-side) timestamp
-    // log(JSON.stringify(metrics))
     let measurements = {}
-    for (i=0; i<metrics.length; i++)
-    {
-        writeAPI.writePoint(metrics[i])
-        measurements[metrics[i].name] = (measurements[metrics[i].name] ? measurements[metrics[i].name]+1 : 1)
-        // log(`${i+1}: ${metrics[i].toLineProtocol(writeAPI)}`)
-    }
+    if (Array.isArray(metrics))
+        metrics.forEach(p => {
+            writeAPI.writePoint(p)
+            measurements[p.name] = (measurements[p.name] ? measurements[p.name]+1 : 1)
+        })
     writeAPI
         .close()
         .then(() => {
             log(measurements)
-            cacheResult = cache.load(config.cacheDir, log)
+            cacheResult = cache.load(config.cacheDir, log) 
             if (cacheResult === false) {
                 return
             }
-            else {
+            else {      
                 let cached = cache.send(cacheResult, config.cacheDir)
                 log('Sending '+cached.length+' cached data points to be uploaded to influx')
                 let points = []
@@ -128,31 +209,33 @@ function post (influxdb, metrics, config, log) {
                     let point = new Point(p.name)
                         .tag(Object.keys(p.tags)[0], p.tags[Object.keys(p.tags)[0]])
                         .timestamp(p.timestamp)
-                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(p.fields[Object.keys(p.fields)[0]]).toString()!=='NaN')
+                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(p.fields[Object.keys(p.fields)[0]]).toString()!=='NaN') 
                         point.floatField(Object.keys(p.fields)[0], parseFloat(p.fields[Object.keys(p.fields)[0]]))
                     else
                         point.stringField(Object.keys(p.fields)[0], p.fields[Object.keys(p.fields)[0]])
                     points.push(point)
                 })
-                // log(JSON.stringify(points))
-                post(influxdb, points, config, log)
+                for (let i = 0; i < points.length; i += BatchSize) {
+                    const batch = points.slice(i, i + BatchSize);
+                        post(influxdb, batch, config)
+                }
             }
         })
         .catch(err => {
             // Handle errors
             cache.push(cacheBuffer, config.cacheDir, log)
             cacheBuffer = []
-            log(`Caching metrics because ${err.message}`);
+            log(`Metrics not written due to ${err.message}`);
             const cacheResult = cache.load(config.cacheDir, log)
             if (cacheResult !== false) {
                 log(`${cacheResult.length} files cached`)
             }
-    })
+        })
 }
-
+ 
 function format (path, values, timestamp, skSource) {
     if (values === null){
-        values = 0
+        return null
     }
 
     //Set variables for metric
@@ -169,13 +252,13 @@ function format (path, values, timestamp, skSource) {
                     point = new Point(skPath[4])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[2], skPath[3])
-                    .stringField(skPath[5], values)
+                    .stringField(skPath[5], values)    
                     break;
                 case 'object':
                     point = new Point(skPath[4])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[2], skPath[3])
-                    .stringField(skPath[5], JSON.stringify(values))
+                    .stringField(skPath[5], JSON.stringify(values))  
                     break;
                 case 'boolean':
                     point = new Point(skPath[4])
@@ -184,10 +267,11 @@ function format (path, values, timestamp, skSource) {
                     .booleanField(skPath[5], values)
                     break;
                 default:
-                    point = new Point(skPath[4])
-                    .tag(skPath[0], skPath[1])
-                    .tag(skPath[2], skPath[3])
-                    .floatField(skPath[5], values)
+                    if (!isNaN(values))
+                        point = new Point(skPath[4])
+                        .tag(skPath[0], skPath[1])
+                        .tag(skPath[2], skPath[3])
+                        .floatField(skPath[5], values)
                     break;
             }
             break;
@@ -198,13 +282,13 @@ function format (path, values, timestamp, skSource) {
                     point = new Point(skPath[3])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[1], skPath[2])
-                    .stringField(skPath[4], values)
+                    .stringField(skPath[4], values)    
                     break;
                 case 'object':
                     point = new Point(skPath[3])
                     .tag(skPath[0], skPath[1])
                     .tag(skPath[1], skPath[2])
-                    .stringField(skPath[4], JSON.stringify(values))
+                    .stringField(skPath[4], JSON.stringify(values))  
                     break;
                 case 'boolean':
                     point = new Point(skPath[3])
@@ -213,10 +297,11 @@ function format (path, values, timestamp, skSource) {
                     .booleanField(skPath[4], values)
                     break;
                 default:
-                    point = new Point(skPath[3])
-                    .tag(skPath[0], skPath[1])
-                    .tag(skPath[1], skPath[2])
-                    .floatField(skPath[4], values)
+                    if (!isNaN(values))
+                        point = new Point(skPath[3])
+                        .tag(skPath[0], skPath[1])
+                        .tag(skPath[1], skPath[2])
+                        .floatField(skPath[4], values)
                     break;
             }
             break;
@@ -226,12 +311,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField(skPath[3], values)
+                    .stringField(skPath[3], values)    
                     break;
                 case 'object':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField(skPath[3], JSON.stringify(values))
+                    .stringField(skPath[3], JSON.stringify(values))  
                     break;
                 case 'boolean':
                     point = new Point(skPath[2])
@@ -239,9 +324,10 @@ function format (path, values, timestamp, skSource) {
                     .booleanField(skPath[3], values)
                     break;
                 default:
-                    point = new Point(skPath[2])
-                    .tag(skPath[0], skPath[1])
-                    .floatField(skPath[3], values)
+                    if (!isNaN(values))
+                        point = new Point(skPath[2])
+                        .tag(skPath[0], skPath[1])
+                        .floatField(skPath[3], values)
                     break;
             }
             break;
@@ -251,12 +337,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField('value', values)
+                    .stringField('value', values)    
                     break;
                 case 'object':
                     point = new Point(skPath[2])
                     .tag(skPath[0], skPath[1])
-                    .stringField('value', JSON.stringify(values))
+                    .stringField('value', JSON.stringify(values))  
                     break;
                 case 'boolean':
                     point = new Point(skPath[2])
@@ -264,9 +350,10 @@ function format (path, values, timestamp, skSource) {
                     .booleanField('value', values)
                     break;
                 default:
-                    point = new Point(skPath[2])
-                    .tag(skPath[0], skPath[1])
-                    .floatField('value', values)
+                    if (!isNaN(values))
+                        point = new Point(skPath[2])
+                        .tag(skPath[0], skPath[1])
+                        .floatField('value', values)
                     break;
             }
             break;
@@ -276,12 +363,12 @@ function format (path, values, timestamp, skSource) {
                 case 'string':
                     point = new Point(skPath[1])
                     .tag(skPath[0], '')
-                    .stringField('value', values)
+                    .stringField('value', values)    
                     break;
                 case 'object':
                     point = new Point(skPath[1])
                     .tag(skPath[0], '')
-                    .stringField('value', JSON.stringify(values))
+                    .stringField('value', JSON.stringify(values))  
                     break;
                 case 'boolean':
                     point = new Point(skPath[1])
@@ -289,9 +376,10 @@ function format (path, values, timestamp, skSource) {
                     .booleanField('value', values)
                     break;
                 default:
-                    point = new Point(skPath[1])
-                    .tag(skPath[0], '')
-                    .floatField('value', values)
+                    if (!isNaN(values))
+                        point = new Point(skPath[1])
+                        .tag(skPath[0], '')
+                        .floatField('value', values)
                     break;
             }
             break;
@@ -302,6 +390,9 @@ function format (path, values, timestamp, skSource) {
             break;
     }
 
+    // return with timestamp and source tag if available
+    if (point===null)
+        return null
     if (skSource && skSource!=='')
         point.tag('source', skSource)
     point.timestamp = (timestamp ? timestamp.toMillis() : DateTime.utc().toMillis())
@@ -312,7 +403,12 @@ module.exports = {
     login,      // login to InfluxDB
     health,     // check InfluxDB health
     config,     // create default configuration
-    buffer,      // load cache if post can be complete
+    reconfig,   // modify config  record
+    match,      // find dynamics path matching actual config path
+    check,      // check if config file exists
+    save,       // save configuration to file
+    buffer,     // load cache if post can be complete
+    flush,      // flush the buffer to cache
     post,       // post to InfluxDB
     format      // format measurement before sending
 }
