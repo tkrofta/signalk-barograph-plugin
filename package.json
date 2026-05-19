@@ -1,6 +1,6 @@
 {
   "name": "signalk-barograph",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "SignalK plugin to influx environment data & Barograph to visualize atmospheric pressure",
   "main": "index.js",
   "dependencies": {

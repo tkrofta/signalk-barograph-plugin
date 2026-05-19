@@ -54,6 +54,8 @@ jobs:
       - name: Install Package 
         if: steps.check.outputs.changed == 'true'
         run: yarn install
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_AUTH_TOKEN}}
       - name: Publish Package 
         if: steps.check.outputs.changed == 'true'
         run: npm publish --access public
