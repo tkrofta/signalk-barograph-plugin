@@ -17,9 +17,9 @@ const predictions = require ('barometer-trend')
 */
 
 const units = require ('./skunits')
-let log = null
-let refreshRate = null
+const log = require('debug')('signalk-barograph:barometer')
 
+let refreshRate = null
 let currentPressure = '';
 let currentTemperature = '';
 let currentWindDirection = ''
@@ -283,8 +283,7 @@ module.exports = {
     onElevationUpdate,
     getTrendAndPredictions,
 
-    init: function(loghandler, prefix, interval) {
-        log = loghandler;
+    init: function(prefix, interval) {
         latest.update = null;
         refreshRate = interval * 1000;
         predictions.clear();
