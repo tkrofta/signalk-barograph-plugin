@@ -57,15 +57,26 @@ module.exports = function (app) {
             app.debug({
                 organization: influxConfig.organization,
                 buckets: {
-                    write: influxConfig.write,
+                    write: influxConfig.bucket,
                     read: influxConfig.read
                 }
             })
             //configure paths
             if (influxConfig.paths.length===0) {
-                // Reconfig subscriptions                
-                influxConfig.paths = influx.config('environment', 10*1000)
-                influx.config('navigation', 0).forEach(p => influxConfig.paths.push(p))
+                // Reconfig subscriptions
+                let interval = 1000      
+                influxConfig.paths = [
+                    { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
+                    { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
+                    { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
+                    { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
+                    { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+                    { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
+                    { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
+                    { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval },                
+                    { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
+                    { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
+                ]
                 var options = app.readPluginOptions();
                 influx.save(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
             } 
@@ -98,7 +109,7 @@ module.exports = function (app) {
             app.setPluginStatus('Initialized');
             // ready to push data
             timerId = setInterval(() => {
-                app.debug (`Sending ${metrics.length} data points to be uploaded to influx`)
+                app.debug(`Sending ${metrics.length} data points to be uploaded to influx`)
                 if (metrics.length !== 0) {
                     influx.post(influxDB, metrics, influxConfig)
                     influx.buffer(metrics)
@@ -108,7 +119,7 @@ module.exports = function (app) {
                 if (updates.length>0)
                     sendDelta(updates)
             }, influxConfig.loadFrequency*1000)
-            app.debug (`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
+            app.debug(`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
               
             let localSubscription = {
                 context: 'vessels.self', // Get data only for self context
@@ -181,20 +192,51 @@ module.exports = function (app) {
         if (!options.pathConfig)
         {   
             options.pathConfig = 'pathconfig.json'
-            configFile = influx.save(app.getDataDirPath(), options.pathConfig, [])
+            let interval = 1000
+            let hourly = Math.min(60*60*1000, 60*60*interval)
+            configFile = influx.save(app.getDataDirPath(), options.pathConfig, [
+                { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
+                { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
+                { path: 'environment.forecast.temperature', period: hourly, policy: "fixed" },
+                { path: 'environment.forecast.temperature.minimum', period: hourly, policy: "fixed" },
+                { path: 'environment.forecast.temperature.maximum', period: hourly, policy: "fixed" },
+                { path: 'environment.forecast.today.temperature.minimum', period: hourly, policy: "fixed" },
+                { path: 'environment.forecast.today.temperature.maximum', period: hourly, policy: "fixed" },
+                { path: 'environment.forecast.temperature.feelslike', period: hourly, policy: "fixed" },
+                { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
+                { path: 'environment.forecast.pressure', period: hourly, policy: "fixed" },
+                { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
+                { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
+                { path: 'environment.forecast.relativeHumidity', period: hourly, policy: "fixed", config: 'relativeHumidity|>humidity' },
+                { path: 'environment.forecast.description', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.wind.direction', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.wind.speed', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.wind.gust', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.weather.visibility', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.weather.clouds', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.weather.uvindex', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.weather.icon', period: hourly, policy:"fixed" },
+                { path: 'environment.forecast.weather.code', period: hourly, policy:"fixed" },
+                { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+                { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
+                { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
+                { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval },                
+                { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
+                { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
+            ])
+            app.debug('No path configuration provided, using default configuration and saving to plugin data directory')
             app.savePluginOptions(options, () => {app.debug('Plugin options saved')});
         }
         try {
             influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
-        }
-        catch {
+        } catch {
             let paths = influx.config('environment', 10*1000)
             influx.config('navigation', 0).forEach(p => paths.push(p))
             configFile = influx.save(app.getDataDirPath(), options.pathConfig, paths)
             influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
         }
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
-        influxConfig.write = (options.influxBucket ? options.influxBucket : '')
+        influxConfig.bucket = (options.influxBucket ? options.influxBucket : '')
         influxConfig.read = (options.influxRead ? options.influxRead : (options.influxBucket ? options.influxBucket : ''))
         influxConfig.retention = (options.writeRetention ? options.writeRetention : 3)
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
@@ -204,11 +246,11 @@ module.exports = function (app) {
             url: options.influxUri,         // get from options
             token: options.influxToken,     // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
-        }, influxConfig.cacheDir, app.debug)
+        }, influxConfig.cacheDir)
         appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
         appconfig.addInflux('token', options.influxToken)
         appconfig.addInflux('org', influxConfig.organization)
-        appconfig.addInflux('write', influxConfig.write)
+        appconfig.addInflux('write', influxConfig.bucket)
         appconfig.addInflux('read', influxConfig.read)
         appconfig.addInflux('retention', influxConfig.retention)
         appconfig.addInflux('username', options.influxToken.includes(':') ? options.influxToken.split(':')[0] : '') // not relevant for >2.x
@@ -228,7 +270,7 @@ module.exports = function (app) {
         influxConfig.initialized = influx.health(influxDB, subscribe)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         // TODO: if configured
-        barometer.init(app.debug, options["barometer"], influxConfig.loadFrequency)
+        barometer.init(options["barometer"], influxConfig.loadFrequency)
 
         app.debug('Plugin initialized');
     };

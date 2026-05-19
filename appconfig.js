@@ -1,8 +1,9 @@
 const axios = require('axios');
+const log = require('debug')('signalk-barograph:app')
 
 let selfuri=''
 let token=''
-function init(uri, user, pwd, log) { 
+function init(uri, user, pwd) { 
     axios({
         method: 'post',
         url: uri+'/signalk/v1/auth/login',
@@ -13,7 +14,7 @@ function init(uri, user, pwd, log) {
       }).then( (response) => {
         selfuri = uri
         token = response.data.token;
-        setAppUserData(log);
+        setAppUserData();
       })
       .catch( (error) => {
         token = ''
@@ -35,7 +36,7 @@ function addInflux (key, value) {
     influx[key] = value;
 }
 
-function setAppUserData (log) {
+function setAppUserData () {
   if (token!=='') {
     let data = { subscriptions, influx };
     let config = {

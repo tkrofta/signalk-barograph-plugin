@@ -1,5 +1,5 @@
-/*
-    Copyright © 2024 Inspired Technologies. Rights Reserved.
+/* 
+    Copyright © 2026 Inspired Technologies. All Rights Reserved.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -17,68 +17,40 @@
 const { InfluxDB, Point } = require('@influxdata/influxdb-client')
 const { HealthAPI } = require('@influxdata/influxdb-client-apis')
 const { DateTime } = require('luxon')
-const cache = require('./cache')
-const fs = require('fs')
+const fs = require('fs') 
 const path = require('path')
-const BatchSize = 500
+const cache = require('./cache')
+const log = require("debug")("signalk-barograph:influx")
 
-let log
+const BatchSize = 5000
+
 let cacheDir = ''
 let cacheBuffer = []
 
-function buffer (metrics) {
+function buffer(metrics) {
     metrics.forEach(m => cacheBuffer.push(m))
 }
 
-function flush (metrics) {
+function flush(metrics) {
     if (metrics) {
       buffer(metrics)
-      cache.push(cacheBuffer, cacheDir, log)
+      cache.push(cacheBuffer, cacheDir)
     }
     return []
-}
+  }
 
-function config(root, interval) {
+function config(configfile, interval) {
     if (interval<1000) interval = 1000
-    let hourly = Math.min(60*60*1000, 60*60*interval)
-    switch (root) {
-        case 'environment':
-                return [
-                    { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
-                    { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
-                    { path: 'environment.forecast.temperature', period: hourly, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.minimum', period: hourly, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.maximum', period: hourly, policy: "fixed" },
-                    { path: 'environment.forecast.today.temperature.minimum', period: hourly, policy: "fixed" },
-                    { path: 'environment.forecast.today.temperature.maximum', period: hourly, policy: "fixed" },
-                    { path: 'environment.forecast.temperature.feelslike', period: hourly, policy: "fixed" },
-                    { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
-                    { path: 'environment.forecast.pressure', period: hourly, policy: "fixed" },
-                    { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
-                    { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
-                    { path: 'environment.forecast.relativeHumidity', period: hourly, policy: "fixed", config: 'relativeHumidity|>humidity' },
-                    { path: 'environment.forecast.description', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.wind.direction', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.wind.speed', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.wind.gust', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.weather.visibility', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.weather.clouds', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.weather.uvindex', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.weather.icon', period: hourly, policy:"fixed" },
-                    { path: 'environment.forecast.weather.code', period: hourly, policy:"fixed" },
-                    { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
-                    { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
-                    { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
-                    { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval }
-                ];
-        case 'navigation':
-                return [
-                    { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
-                    { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
-                ]
-        default:
+    if (fs.existsSync(configfile))
+        try
+        {
+            let configPaths = require(configfile)
+            return configPaths
+        } catch {
             return []
-    }
+        }
+    else 
+        return []
 }
 
 function reconfig (path, config) {
@@ -101,13 +73,13 @@ function reconfig (path, config) {
       const rotate = '*.'+path.split('.*')[0]+path.split('.*')[1]
       return param[0]+rotate+param[1]
     } else if (config.includes('^')) {
-      // lookup
-      return config    
+        // lookup
+        return config    
     }
     return null
 }
 
-function match (paths, actual)
+function match(paths, actual)
 {
     if (!Array.isArray(paths))
         return ''
@@ -131,7 +103,7 @@ function match (paths, actual)
     return found
 }
 
-function save (dir, file, content) {
+function save(dir, file, content) {
     fs.writeFileSync(
         path.join(dir, file),
         JSON.stringify(content).concat("\n"), (err) => {
@@ -142,12 +114,11 @@ function save (dir, file, content) {
     return file
 }
 
-function check (dir, file) {
+function check(dir, file) {
     return fs.existsSync(path.join(dir, file));
 }
 
-function login (clientOptions, cachedir, debug) {
-    log = debug
+function login(clientOptions, cachedir) {
     try {
         const influxDB = new InfluxDB(clientOptions)
         cacheDir = cachedir
@@ -170,7 +141,7 @@ async function health (influxDB, callback) {
     await healthAPI
     .getHealth()
     .then((result /* : HealthCheck */) => {
-        log('Influx healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
+        log('healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
         return callback(influxDB, result) 
    })
     .catch(error => {
@@ -183,7 +154,7 @@ function post (influxdb, metrics, config) {
     // [Required] Organization | Empty for 1.8.x
     // [Required] Bucket | Database/Retention Policy 
     // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
-    const writeAPI = influxdb.getWriteApi(config.organization, config.write, 'ms')
+    const writeAPI = influxdb.getWriteApi(config.organization, config.bucket, 'ms')
     writeAPI.useDefaultTags({id: config.id})
     
     // write point with the appropriate (client-side) timestamp
@@ -197,7 +168,7 @@ function post (influxdb, metrics, config) {
         .close()
         .then(() => {
             log(measurements)
-            cacheResult = cache.load(config.cacheDir, log) 
+            cacheResult = cache.load(config.cacheDir) 
             if (cacheResult === false) {
                 return
             }
@@ -223,16 +194,16 @@ function post (influxdb, metrics, config) {
         })
         .catch(err => {
             // Handle errors
-            cache.push(cacheBuffer, config.cacheDir, log)
+            cache.push(cacheBuffer, config.cacheDir)
             cacheBuffer = []
             log(`Metrics not written due to ${err.message}`);
-            const cacheResult = cache.load(config.cacheDir, log)
+            const cacheResult = cache.load(config.cacheDir)
             if (cacheResult !== false) {
                 log(`${cacheResult.length} files cached`)
             }
         })
 }
- 
+
 function format (path, values, timestamp, skSource) {
     if (values === null){
         return null

@@ -1,7 +1,8 @@
 const fs = require('fs')
 const REQUEUED = 'cached'
+const log = require('debug')('signalk-barograph:cache')
 
-function push (input, cacheDir, log) {
+function push (input, cacheDir) {
     // store content to file
 	let data = JSON.stringify(input)
 	let fileName = Date.now() + '.' + REQUEUED
@@ -9,7 +10,7 @@ function push (input, cacheDir, log) {
 	log(`Caching to ${fileName}`)
 }
 
-function load (cacheDir, log) {
+function load (cacheDir) {
     // joining path of directory 
 	const fileArray = []
 	const directoryPath = cacheDir;
