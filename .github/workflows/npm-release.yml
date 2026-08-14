@@ -29,9 +29,26 @@ jobs:
       - name: Log when changed
         if: steps.check.outputs.changed == 'true'
         run: 'echo "Version changed commit ${{ steps.check.outputs.commit }}! New version: ${{ steps.check.outputs.version }} (${{ steps.check.outputs.type }})"'
+
+      - name: Check if release exists
+        if: steps.check.outputs.changed == 'true'
+        id: release_exists
+        run: |
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ steps.check.outputs.version }}")
+          if [ "$STATUS_CODE" = "200" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release already exists for version ${{ steps.check.outputs.version }}"
+          elif [ "$STATUS_CODE" = "404" ]; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Failed to check release status (HTTP $STATUS_CODE)"
+            exit 1
+          fi
         
       - name: Create Release
-        if: steps.check.outputs.changed == 'true'
+        if: steps.check.outputs.changed == 'true' && steps.release_exists.outputs.exists == 'false'
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # This token is provided by Actions, you do not need to create your own token
