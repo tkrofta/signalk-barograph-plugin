@@ -1,21 +1,21 @@
 {
   "name": "signalk-barograph",
-  "version": "0.9.9",
+  "version": "0.9.10",
   "description": "SignalK plugin to influx environment data & Barograph to visualize atmospheric pressure",
   "main": "index.js",
   "dependencies": {
     "@influxdata/influxdb-client": "^1.35.0",
     "@influxdata/influxdb-client-apis": "^1.35.0",
     "@signalk/signalk-schema": "^1.7.2",
-    "axios": "^1.19.0",
+    "axios": "^1.20.0",
     "barometer-trend": "^2.2.7",
     "debug": "^4.4.3",
-    "js-yaml": "^5.2.3",
+    "js-yaml": "^5.4.3",
     "luxon": "^3.7.2"
   },
   "scripts": {
     "debug": "node --inspect-brk=192.168.0.97:9229 /usr/lib/node_modules/signalk-server/bin/signalk-server -c /home/pi/signalk",
-    "test": "$NODE $npm_package_main",
+    "test": "node --test test/*.js",
     "create-release": "github-create-release --owner tkrofta --repository signalk-barograph",
     "release": "git tag -d v$npm_package_version; git tag v$npm_package_version && git push --tags && git push && npm run create-release"
   },
