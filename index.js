@@ -280,6 +280,7 @@ module.exports = function (app) {
         unsubscribes = [];
         clearInterval(timerId)
         app.debug('Interval Timer Stopped')
+        metrics = influx.flush(metrics, influxConfig.cacheDir ? influxConfig.cacheDir : app.getDataDirPath())
         app.debug('Plugin stopped');
     };
 

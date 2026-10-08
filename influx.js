@@ -31,11 +31,13 @@ function buffer(metrics) {
     metrics.forEach(m => cacheBuffer.push(m))
 }
 
-function flush(metrics) {
-    if (metrics) {
+function flush(metrics, cachedir) {
+    if (cachedir)
+      cacheDir = cachedir
+    if (metrics)
       buffer(metrics)
-      cache.push(cacheBuffer, cacheDir)
-    }
+    if (cacheBuffer.length > 0 && cache.push(cacheBuffer, cacheDir))
+      cacheBuffer = []
     return []
   }
 
@@ -168,6 +170,9 @@ function post (influxdb, metrics, config) {
         .close()
         .then(() => {
             log(measurements)
+            // these points are confirmed written, so drop exactly them from the retry buffer
+            if (Array.isArray(metrics))
+                cacheBuffer = cacheBuffer.filter(p => !metrics.includes(p))
             cacheResult = cache.load(config.cacheDir) 
             if (cacheResult === false) {
                 return
@@ -194,8 +199,8 @@ function post (influxdb, metrics, config) {
         })
         .catch(err => {
             // Handle errors
-            cache.push(cacheBuffer, config.cacheDir)
-            cacheBuffer = []
+            if (cache.push(cacheBuffer, config.cacheDir))
+                cacheBuffer = []
             log(`Metrics not written due to ${err.message}`);
             const cacheResult = cache.load(config.cacheDir)
             if (cacheResult !== false) {

@@ -1,19 +1,37 @@
 const fs = require('fs')
+const path = require('path')
 const REQUEUED = 'cached'
 const log = require('debug')('signalk-barograph:cache')
 
+function cachePath (cacheDir, file) {
+	return path.join(cacheDir, file)
+}
+
 function push (input, cacheDir) {
+	// nothing to cache
+	if (!Array.isArray(input) || input.length === 0)
+		return false
+	// never fall back to the filesystem root when no cache directory is configured
+	if (!cacheDir || !fs.existsSync(cacheDir)) {
+		log(`Cannot cache ${input.length} data point(s): invalid cache directory '${cacheDir}'`)
+		return false
+	}
     // store content to file
 	let data = JSON.stringify(input)
 	let fileName = Date.now() + '.' + REQUEUED
-	fs.writeFileSync(`${cacheDir}/${fileName}.json`, data);
+	fs.writeFileSync(cachePath(cacheDir, `${fileName}.json`), data);
 	log(`Caching to ${fileName}`)
+	return true
 }
 
 function load (cacheDir) {
     // joining path of directory 
 	const fileArray = []
 	const directoryPath = cacheDir;
+	if (!directoryPath || !fs.existsSync(directoryPath)) {
+		log(`Invalid cache directory '${cacheDir}'`)
+		return false
+	}
 	// passsing directoryPath and callback function
 	files = fs.readdirSync(directoryPath)
 	for (i=0; i<files.length; i++)
@@ -33,14 +51,14 @@ function send (filenames, cacheDir) {
 	var input = []
 	filenames.forEach(function (file) {
 		if (file.includes(REQUEUED)) {
-			const thisfile = fs.readFileSync(`${cacheDir}/${file}`, 'utf8')
+			const thisfile = fs.readFileSync(cachePath(cacheDir, file), 'utf8')
 			input.push(...JSON.parse(thisfile));
 		}
 	});
 	
 	for (const file of filenames) {
     	if (file.includes(REQUEUED))
-			fs.unlink((`${cacheDir}/${file}`), err => {
+			fs.unlink(cachePath(cacheDir, file), err => {
 				if (err) throw err;
         });
     };
