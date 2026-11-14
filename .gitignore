@@ -106,3 +106,10 @@ dist
 
 # SWP
 *.swp
+
+# AI
+.ai/
+CLAUDE.md
+
+# Docs
+docs/backlog.md
