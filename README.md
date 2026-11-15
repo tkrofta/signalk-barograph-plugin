@@ -6,13 +6,16 @@ SignalK Server plugin to record and visualize environmental data
 
 ### Prerequisites
 
+> **SignalK Server 2.24 or later** is required - the barograph app is built for the React 19 admin UI introduced with 2.24.
+> On SignalK Server **before 2.31** only **administrators** can view the barograph history: plugin endpoints are admin only on these versions; 2.31 and later open them to every logged-in user (read only).
+
 In order for this plugin to work you need to have InfluxDB available and configured - by using the latest __[JS client](https://influxdata.github.io/influxdb-client-js/influxdb-client.html)__ v2 API, the plugin supports both OSS version 1.8.4+ (32bit) and 2.0.x (64bit). Implementation may be in the same local network as SignalK server, hosted on docker or in the cloud.
-- For v1.8 you may want to enable flux for the barograph despite influxql should work as a fallback
-- Flux is defaulted on v2.0.x, but in order to use backwards compatibility on queries you may want to configure the __[1.x compatibility endpoint](https://docs.influxdata.com/influxdb/v2.0/reference/api/influxdb-1x/query/)__ 
+- InfluxDB v1.8 (no organisation configured): the barograph history is queried with InfluxQL
+- InfluxDB v2.x: the barograph history is queried with Flux
 
 ### Install
 
-Install the plugin from the SignalK Server appstore and configure as outline below. Post installation 'Activate' on the SignalK Plugin Config interface and enter your influx connection as well as application user data:
+Install the plugin from the SignalK Server appstore and configure as outline below. Post installation 'Activate' on the SignalK Plugin Config interface and enter your influx connection:
 
 | Configuration | Influx v1.8.x | Influx OSS v2.x |
 | ------------- | ------------- | --------------- |
@@ -24,9 +27,9 @@ Install the plugin from the SignalK Server appstore and configure as outline bel
 It is advised to have a default or explicit retention policy configured of at least 3h, better 6h.
 *Note: Pointing to influxDB as http://localhost:8086 caused unreliable connection issues during test - you may want to use a fixed ip address instead.*
 
-The selfref connection string points to a SignalK server user enabled for read/write in the following format:
-`signalk-server-url including port|username|password`
-The connection is used and required to provide configuration data from the plugin to the embedded web app (login as the same user)   
+The InfluxDB credentials stay on the server: the embedded barograph app reads its configuration and the pressure history from the plugin endpoints (see [Barograph App](#barograph-app)) - the former *selfRef* connection string (SignalK user and password) is no longer needed.
+
+If InfluxDB is not reachable when the plugin starts, the plugin state shows the reason and the barometer predictions continue without it. Data points that cannot be written are cached in the plugin data directory (up to 100 MB / 30 days) and replayed once InfluxDB accepts writes again; a filling cache is raised on the plugin state.
 
 Use the write interval to configure data points **upload** interval to influx in seconds - read frequency is dependent on the path configuration (but will not below 1s) outlined in the next section.
 
@@ -69,6 +72,19 @@ Additional paths can be configured in order to make more environmental data avai
 `{"path":"environment.forecast.humidity","period":900000,"policy":"fixed"}`
 
 
+## Barograph App
+
+The barograph is embedded in the SignalK admin UI (*Webapps → Barograph*): a barometer dial with the current pressure and a set hand at the start of the trend period, the barograph trace for 3h, 12h, 24h, 48h or 72h, the trend and the predictions. Unit (hPa, mbar, kPa, inHg, mmHg, atm, Pa), sea level reduction and trace smoothing are set per browser.
+
+Up to the *Write Bucket Retention* the history is read from the write bucket, beyond it from the read bucket (field `average`, e.g. downsampled by an InfluxDB task) - without a separate read bucket the write bucket is used for every timescale.
+
+| Endpoint | Description |
+| -------- | ----------- |
+| `GET /plugins/signalk-barograph/settings` | subscribed paths, history availability and timescales - no credentials |
+| `GET /plugins/signalk-barograph/history?hours=3` | pressure history in Pa as `[[time ms, Pa], ...]`, averaged to about 180 points |
+
+Both are described in the admin UI under *Documentation → OpenAPI*.
+
 ## Screen Samples
 
 A working example of a full configuration file can be found __[here](./samples/pathconfig.json)__.
@@ -103,7 +119,7 @@ The plugin subscribes to all `environment`-paths registered in `pathconfig.json`
 | ----------- | ------- | -------- | ----- |
 | tag: name    | tag: value | measurement: name | measurement: value
 
-The value given either in `uuid` or `mmsi` will be used as an additional tag to allow for multiple server instances logging into the same influx backend. Similarily the SignalK data source will be added as a tag to the point. Only a maximum of the most recent 3h of data are currently used within the Barograph App, however in future iterations the timeframe might be extended into 48h resp. 7d of weather monitoring through using additional buckets resp. RPs. Using retention policies and additional buckets the data can be easily downsampled for further analysis or longer-term storage.
+The value given either in `uuid` or `mmsi` will be used as an additional tag to allow for multiple server instances logging into the same influx backend. Similarily the SignalK data source will be added as a tag to the point. Points carry the time of measurement. The Barograph App shows up to 72h of data, using the read bucket beyond the write retention. Using retention policies and additional buckets the data can be easily downsampled for further analysis or longer-term storage.
 
 ### Predictions
 
