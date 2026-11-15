@@ -30,13 +30,25 @@
     "/history": {
       "get": {
         "summary": "Pressure history",
-        "description": "Pressure history from InfluxDB, averaged per resolution window. Up to the write retention the write bucket is used, beyond it the read bucket.",
+        "description": "Pressure history from InfluxDB, averaged per resolution window. Up to the write retention the write bucket is used, beyond it the read bucket. With series=forecast the pressure forecasts as captured at the time, stored at the time they are valid for.",
         "parameters": [
           {
             "name": "hours",
             "in": "query",
             "description": "Timescale in hours (1-72)",
             "schema": { "type": "number", "default": 3, "minimum": 1, "maximum": 72 }
+          },
+          {
+            "name": "series",
+            "in": "query",
+            "description": "pressure (the configured pressure path) or forecast (environment.forecast.pressure)",
+            "schema": { "type": "string", "enum": ["pressure", "forecast"], "default": "pressure" }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "description": "Only values of this $source - eg. the source named by the Open-Meteo forecast endpoint",
+            "schema": { "type": "string", "example": "openmeteo-signalk.best_match" }
           }
         ],
         "responses": {
@@ -48,7 +60,7 @@
               }
             }
           },
-          "400": { "description": "Invalid timescale", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "400": { "description": "Invalid timescale, series or source", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "502": { "description": "InfluxDB query failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "503": { "description": "Plugin stopped or InfluxDB not available", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
@@ -86,6 +98,17 @@
               "timescales": { "type": "array", "items": { "type": "number" }, "example": [3, 12, 24, 48, 72] }
             }
           },
+          "forecast": {
+            "type": "object",
+            "description": "Forecast trace - available when switched on in the plugin configuration and the Open-Meteo plugin is installed and enabled",
+            "properties": {
+              "available": { "type": "boolean" },
+              "plugin": { "type": "string", "example": "openmeteo-signalk" },
+              "endpoint": { "type": "string", "description": "forecast series endpoint of that plugin", "example": "/plugins/openmeteo-signalk/forecast" },
+              "measure": { "type": "string", "example": "pressure" },
+              "hours": { "type": "number", "description": "hours ahead", "example": 3 }
+            }
+          },
           "interval": { "type": "number", "description": "influx write interval in seconds" }
         }
       },
@@ -93,6 +116,7 @@
         "type": "object",
         "properties": {
           "path": { "type": "string" },
+          "source": { "type": "string", "nullable": true, "description": "$source the values are limited to" },
           "hours": { "type": "number" },
           "resolution": { "type": "number", "description": "window in seconds" },
           "bucket": { "type": "string", "enum": ["write", "read"] },

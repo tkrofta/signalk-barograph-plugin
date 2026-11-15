@@ -17,14 +17,16 @@
     - up to the write retention the write bucket is used (field as written by the plugin),
       beyond it the read bucket (downsampled field 'average') - unless both are the same bucket
     - Influx 2.x (organisation configured): Flux; Influx 1.8 (no organisation): InfluxQL
+    - optionally limited to one $source (tag 'source'), eg. the forecasts of one Open-Meteo model
 */
 
 const log = require('debug')('signalk-barograph:history')
 
 const TIMESCALES = [3, 12, 24, 48, 72]      // hours offered by the app
 const MAX_HOURS = 72
-const POINTS = 180                          // target number of points per timescale
+const POINTS = 720                          // target number of points per timescale
 const DOWNSAMPLED = 'average'               // field of the downsampled read bucket
+const DOWNSAMPLED_STEP = 300                // seconds - the read bucket holds 5 minute values (downsampling task)
 
 // influx series of a SignalK path - same mapping as influx.format()
 function series(path) {
@@ -43,9 +45,10 @@ function series(path) {
     }
 }
 
-// sample window in seconds - one minute for 3h, scaled to about POINTS points beyond
-function resolution(hours) {
-    return Math.max(60, Math.ceil(hours * 3600 / POINTS / 60) * 60)
+// sample window in seconds - one minute up to 12h, scaled to about POINTS points beyond,
+// not below the step of the downsampled read bucket
+function resolution(hours, downsampled = false) {
+    return Math.max(downsampled ? DOWNSAMPLED_STEP : 60, Math.ceil(hours * 3600 / POINTS / 60) * 60)
 }
 
 function hoursOf(value) {
@@ -62,16 +65,23 @@ function source(config, hours, field) {
     return downsampled ? { bucket: config.read, field: DOWNSAMPLED, type: 'read' } : { bucket: config.bucket, field, type: 'write' }
 }
 
+// $source as written by the plugin, eg. 'openmeteo-signalk.icon_seamless' or 'n2k.115'
+function isSource(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,128}$/.test(value)
+}
+
 const fluxString = (s) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 const qlIdentifier = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"'
 const qlString = (s) => "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'"
 
-function fluxQuery(config, path, hours) {
+function fluxQuery(config, path, hours, options = {}) {
     const s = series(path)
     const src = source(config, hours, s.field)
     const filters = Object.entries(s.tags).map(([k, v]) => `r["${fluxString(k)}"] == "${fluxString(v)}"`)
     if (config.id)
         filters.push(`r["id"] == "${fluxString(config.id)}"`)
+    if (options.source)
+        filters.push(`r["source"] == "${fluxString(options.source)}"`)
     return [
         `from(bucket: "${fluxString(src.bucket)}")`,
         `|> range(start: -${hours}h)`,
@@ -80,12 +90,12 @@ function fluxQuery(config, path, hours) {
         `|> filter(fn: (r) => exists r["source"] and r["source"] != "")`,
         `|> group()`,
         `|> sort(columns: ["_time"])`,
-        `|> aggregateWindow(every: ${resolution(hours)}s, fn: mean, createEmpty: false)`,
+        `|> aggregateWindow(every: ${resolution(hours, src.type === 'read')}s, fn: mean, createEmpty: false)`,
         `|> keep(columns: ["_time", "_value"])`
     ].join(' ')
 }
 
-function influxQL(config, path, hours) {
+function influxQL(config, path, hours, options = {}) {
     const s = series(path)
     const src = source(config, hours, s.field)
     const [db, rp] = src.bucket.split('/')
@@ -93,23 +103,23 @@ function influxQL(config, path, hours) {
     Object.entries(s.tags).forEach(([k, v]) => where.push(`${qlIdentifier(k)} = ${qlString(v)}`))
     if (config.id)
         where.push(`"id" = ${qlString(config.id)}`)
-    where.push(`"source" != ''`)
+    where.push(options.source ? `"source" = ${qlString(options.source)}` : `"source" != ''`)
     return {
         db,
         q: `SELECT mean(${qlIdentifier(src.field)}) FROM ${qlIdentifier(db)}.${rp ? qlIdentifier(rp) : ''}.${qlIdentifier(s.measurement)} ` +
-            `WHERE ${where.join(' AND ')} GROUP BY time(${resolution(hours)}s) fill(none)`
+            `WHERE ${where.join(' AND ')} GROUP BY time(${resolution(hours, src.type === 'read')}s) fill(none)`
     }
 }
 
-async function queryFlux(influxDB, config, path, hours) {
-    const rows = await influxDB.getQueryApi(config.organization).collectRows(fluxQuery(config, path, hours))
+async function queryFlux(influxDB, config, path, hours, options) {
+    const rows = await influxDB.getQueryApi(config.organization).collectRows(fluxQuery(config, path, hours, options))
     return rows
         .filter(r => r._value !== null && r._value !== undefined)
         .map(r => [new Date(r._time).getTime(), r._value])
 }
 
-async function queryInfluxQL(config, path, hours, fetchFn = fetch) {
-    const { db, q } = influxQL(config, path, hours)
+async function queryInfluxQL(config, path, hours, fetchFn = fetch, options) {
+    const { db, q } = influxQL(config, path, hours, options)
     const url = `${String(config.url).replace(/\/+$/, '')}/query?db=${encodeURIComponent(db)}&epoch=ms&q=${encodeURIComponent(q)}`
     const headers = {}
     if (config.token)
@@ -125,22 +135,26 @@ async function queryInfluxQL(config, path, hours, fetchFn = fetch) {
     return values.filter(v => v[1] !== null).map(v => [v[0], v[1]])
 }
 
-// pressure history in Pa - { path, hours, resolution, bucket, unit, from, to, data: [[ms, Pa], ...] }
-async function query(influxDB, config, path, value, fetchFn) {
+// pressure history in Pa - { path, source, hours, resolution, bucket, unit, from, to, data: [[ms, Pa], ...] }
+async function query(influxDB, config, path, value, fetchFn, options = {}) {
     const hours = hoursOf(value)
     if (hours === null)
         throw Object.assign(new Error('hours must be a positive number'), { status: 400 })
     if (!series(path))
         throw Object.assign(new Error(`no influx series for path '${path}'`), { status: 404 })
     const v1 = !config.organization
-    const data = v1 ? await queryInfluxQL(config, path, hours, fetchFn) : await queryFlux(influxDB, config, path, hours)
+    if (options.source !== undefined && !isSource(options.source))
+        throw Object.assign(new Error('invalid source'), { status: 400 })
+    const data = v1 ? await queryInfluxQL(config, path, hours, fetchFn, options) : await queryFlux(influxDB, config, path, hours, options)
     const to = Date.now()
-    log(`history ${path} ${hours}h: ${data.length} point(s) via ${v1 ? 'InfluxQL' : 'Flux'}`)
+    const src = source(config, hours, series(path).field)
+    log(`history ${path}${options.source ? ' of ' + options.source : ''} ${hours}h: ${data.length} point(s) via ${v1 ? 'InfluxQL' : 'Flux'}`)
     return {
         path,
+        source: options.source || null,
         hours,
-        resolution: resolution(hours),
-        bucket: source(config, hours, series(path).field).type,
+        resolution: resolution(hours, src.type === 'read'),
+        bucket: src.type,
         unit: 'Pa',
         from: new Date(to - hours * 3600 * 1000).toISOString(),
         to: new Date(to).toISOString(),
@@ -152,6 +166,7 @@ module.exports = {
     TIMESCALES,
     series,
     resolution,
+    isSource,
     fluxQuery,
     influxQL,
     query

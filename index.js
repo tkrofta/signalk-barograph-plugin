@@ -28,6 +28,8 @@ const convert = require("./skunits")
 const WAITING = 'waiting ...'
 const DEFAULT_CONFIG = 'pathconfig.json'
 const INTERVAL = 1000
+// forecast trace of the app - from the Open-Meteo plugin, if installed and enabled
+const FORECAST = { plugin: 'openmeteo-signalk', path: 'environment.forecast.pressure', measure: 'pressure', hours: 3 }
 
 // path configuration written when the plugin has none configured
 function defaultPaths() {
@@ -102,6 +104,7 @@ module.exports = function (app) {
     let pathConfig = {}
     let valueConfig = {}
     let running = false         // guards the asynchronous influx health check against an early stop
+    let forecastReason = null   // last logged reason of the forecast trace availability
     let generation = 0          // ... and against a check of a previous start completing after a restart
     let reported = ''           // last plugin status set from the offline cache
 
@@ -128,8 +131,12 @@ module.exports = function (app) {
         return ''
     }
 
-    // timestamp for forecast paths - the time the forecast is valid for
-    function forecastTime(timestamp) {
+    // timestamp for forecast paths - the time the forecast is valid for, from the same source if it published one
+    // (several forecast plugins or models publish environment.forecast.time for different hours)
+    function forecastTime(timestamp, src) {
+        const own = src && influxConfig.forecastTimes && influxConfig.forecastTimes[src]
+        if (own && own.isValid)
+            return own.toUTC()
         const fctime = app.getSelfPath('environment.forecast.time')
         if (fctime && fctime.value && fctime.value!==WAITING) {
             const time = DateTime.fromISO(fctime.value)
@@ -225,10 +232,16 @@ module.exports = function (app) {
                     if (path==='environment.forecast.time') {
                         // conversion not required due to dt format change in openweather plugin (v0.5)
                         influxConfig.currentForecast = DateTime.fromISO(u.values[0].value)
+                        if (source(u)) {
+                            const previous = influxConfig.forecastTimes[source(u)]
+                            if (!previous || +previous !== +influxConfig.currentForecast)
+                                log(`Forecast of ${source(u)} valid for ${u.values[0].value}`)
+                            influxConfig.forecastTimes[source(u)] = influxConfig.currentForecast
+                        }
                         return
                     }
                     if (path.includes('environment.forecast'))
-                        timestamp = forecastTime(timestamp)
+                        timestamp = forecastTime(timestamp, source(u))
                     else if (barometer.isSubscribed(u.values[0].path))
                         // fix: subscription is on the original path
                         barometer.onDeltaUpdate(u)
@@ -264,7 +277,7 @@ module.exports = function (app) {
         metrics = []
         pathConfig = {}
         valueConfig = {}
-        influxConfig = { initialized: false, online: false, trends: {} }
+        influxConfig = { initialized: false, online: false, trends: {}, forecastTimes: {} }
         influxConfig.cacheDir = app.getDataDirPath()
         if (!options.pathConfig)
         {
@@ -282,6 +295,7 @@ module.exports = function (app) {
         influxConfig.retention = (options.writeRetention ? options.writeRetention : 3)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
+        influxConfig.forecast = options.forecast !== false
 
         // predictions do not depend on influx - restore the pressure history saved on the last stop
         barometer.init(options["barometer"], influxConfig.loadFrequency)
@@ -314,8 +328,39 @@ module.exports = function (app) {
         log('Plugin stopped');
     };
 
+    // forecast trace: switched on and the Open-Meteo plugin installed and enabled on this server
+    async function forecastAvailable() {
+        const reason = await forecastUnavailable()
+        if (reason !== forecastReason)
+            log(reason ? `Forecast trace not available: ${reason}` : `Forecast trace available from ${FORECAST.plugin}`)
+        forecastReason = reason
+        return !reason
+    }
+
+    // why the forecast trace is off - '' when it is available
+    async function forecastUnavailable() {
+        if (!running)
+            return 'plugin not running'
+        if (!influxConfig.forecast)
+            return "switched off ('Forecast trace')"
+        // documented feature detection (ServerAPI.getFeatures) - the plugins list is internal to the server
+        // and not handed to plugins on every version, kept as fallback only
+        const features = typeof app.getFeatures === 'function'
+        if (!features && typeof app.getPluginsList !== 'function')
+            return 'server does not list plugins (app.getFeatures)'
+        try {
+            const plugins = features ? ((await app.getFeatures()) || {}).plugins : await app.getPluginsList()
+            const plugin = Array.isArray(plugins) ? plugins.find(p => p.id === FORECAST.plugin) : null
+            if (!plugin)
+                return `${FORECAST.plugin} not installed`
+            return plugin.enabled ? '' : `${FORECAST.plugin} not enabled`
+        } catch (err) {
+            return `installed plugins not available - ${err.message}`
+        }
+    }
+
     // configuration for the barograph app - no credentials
-    function appSettings() {
+    function appSettings(forecast = false) {
         const pressure = influxConfig.trends && influxConfig.trends.pressure
         return {
             running,
@@ -332,6 +377,14 @@ module.exports = function (app) {
                 buckets: { write: influxConfig.bucket || '', read: influxConfig.read || influxConfig.bucket || '' },
                 timescales: history.TIMESCALES
             },
+            // the app reads the future from the Open-Meteo endpoint, the past forecasts from /history?series=forecast
+            forecast: {
+                available: forecast,
+                plugin: FORECAST.plugin,
+                endpoint: `/plugins/${FORECAST.plugin}/forecast`,
+                measure: FORECAST.measure,
+                hours: FORECAST.hours
+            },
             interval: influxConfig.loadFrequency || 30
         }
     }
@@ -340,8 +393,8 @@ module.exports = function (app) {
         // any logged-in user may read (server >= 2.31), older servers keep plugin routes admin only
         const readonly = typeof router.access === 'function' ? router.access('readonly') : router
 
-        readonly.get('/settings', (req, res) => {
-            res.json(appSettings())
+        readonly.get('/settings', async (req, res) => {
+            res.json(appSettings(await forecastAvailable()))
         })
 
         readonly.get('/history', async (req, res) => {
@@ -350,9 +403,20 @@ module.exports = function (app) {
                 return
             }
             const settings = appSettings()
-            const source = pathConfig[settings.paths.pressure] || settings.paths.pressure
+            // pressure or the forecasts captured at the time (stored at the time they are valid for) of one source
+            const forecast = req.query.series === 'forecast'
+            if (req.query.series !== undefined && req.query.series !== 'pressure' && !forecast) {
+                res.status(400).json({ message: 'series must be pressure or forecast' })
+                return
+            }
+            const sourceId = req.query.source
+            if (sourceId !== undefined && !history.isSource(sourceId)) {
+                res.status(400).json({ message: 'invalid source' })
+                return
+            }
+            const series = forecast ? pathConfig[FORECAST.path] || FORECAST.path : pathConfig[settings.paths.pressure] || settings.paths.pressure
             try {
-                res.json(await history.query(influxConfig.client, influxConfig, source, req.query.hours || 3))
+                res.json(await history.query(influxConfig.client, influxConfig, series, req.query.hours || 3, undefined, { source: sourceId }))
             } catch (err) {
                 log(`History query failed: ${err.message}`)
                 res.status(err.status || 502).json({ message: err.message })
@@ -413,6 +477,12 @@ module.exports = function (app) {
                 title: 'Write Bucket Retention',
                 description: 'if entered (hours), read bucket will only be used for queries greater than write retention period',
                 default: 3
+            },
+        "forecast": {
+                type: 'boolean',
+                title: 'Forecast trace',
+                description: `show the pressure forecast of the Open-Meteo plugin (${FORECAST.plugin}) in the barograph - past forecasts from InfluxDB, ${FORECAST.hours}h ahead; inactive without the plugin`,
+                default: true
             },
         }
     };
