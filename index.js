@@ -1,4 +1,4 @@
-/* 
+/*
    Copyright © 2026 Inspired Technologies. Rights Reserved.
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,15 +15,74 @@
 */
 
 'use strict'
-const debug = require("debug")("signalk:signalk-barograph")
+const log = require('debug')('signalk-barograph')
+const path = require('path')
 const { getSourceId } = require('@signalk/signalk-schema')
 const { DateTime } = require('luxon');
 const influx = require("./influx")
+const cache = require("./cache")
 const barometer = require("./barometer")
 const appconfig = require ("./appconfig")
 const convert = require("./skunits")
 const WAITING = 'waiting ...'
+const DEFAULT_CONFIG = 'pathconfig.json'
+const INTERVAL = 1000
 
+// path configuration written when the plugin has none configured
+function defaultPaths() {
+    const hourly = 60*60*INTERVAL
+    return [
+        { path: 'environment.forecast.time', period: 10*INTERVAL, policy: "fixed" },
+        { path: 'environment.outside.temperature', policy: "instant", minPeriod: INTERVAL, trend: "temperature" },
+        { path: 'environment.forecast.temperature', period: hourly, policy: "fixed" },
+        { path: 'environment.forecast.temperature.minimum', period: hourly, policy: "fixed" },
+        { path: 'environment.forecast.temperature.maximum', period: hourly, policy: "fixed" },
+        { path: 'environment.forecast.today.temperature.minimum', period: hourly, policy: "fixed" },
+        { path: 'environment.forecast.today.temperature.maximum', period: hourly, policy: "fixed" },
+        { path: 'environment.forecast.temperature.feelslike', period: hourly, policy: "fixed" },
+        { path: 'environment.outside.pressure', policy: "instant", minPeriod: INTERVAL, trend: "pressure" },
+        { path: 'environment.forecast.pressure', period: hourly, policy: "fixed" },
+        { path: 'environment.outside.humidity', policy: "instant", minPeriod: INTERVAL },
+        { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: INTERVAL, config: 'relativeHumidity|>humidity' },
+        { path: 'environment.forecast.relativeHumidity', period: hourly, policy: "fixed", config: 'relativeHumidity|>humidity' },
+        { path: 'environment.forecast.description', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.wind.direction', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.wind.speed', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.wind.gust', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.weather.visibility', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.weather.clouds', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.weather.uvindex', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.weather.icon', period: hourly, policy:"fixed" },
+        { path: 'environment.forecast.weather.code', period: hourly, policy:"fixed" },
+        { path: 'environment.wind.directionTrue', period: 10*INTERVAL, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+        { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: INTERVAL, trend: "winddir" },
+        { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: INTERVAL },
+        { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: INTERVAL },
+        { path: 'navigation.gnss.antennaAltitude', period: 60*INTERVAL, policy: 'fixed', trend:'altitude' },
+        { path: 'navigation.position', period: 60*INTERVAL, policy: 'fixed', trend: 'position' }
+    ]
+}
+
+// path configuration written when the configured file is missing or empty
+function minimalPaths() {
+    return [
+        { path: 'environment.outside.temperature', policy: "instant", minPeriod: INTERVAL, trend: "temperature" },
+        { path: 'environment.outside.pressure', policy: "instant", minPeriod: INTERVAL, trend: "pressure" },
+        { path: 'environment.outside.humidity', policy: "instant", minPeriod: INTERVAL },
+        { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: INTERVAL, config: 'relativeHumidity|>humidity' },
+        { path: 'environment.wind.directionTrue', period: 10*INTERVAL, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
+        { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: INTERVAL, trend: "winddir" },
+        { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: INTERVAL },
+        { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: INTERVAL },
+        { path: 'navigation.gnss.antennaAltitude', period: 60*INTERVAL, policy: 'fixed', trend:'altitude' },
+        { path: 'navigation.position', period: 60*INTERVAL, policy: 'fixed', trend: 'position' }
+    ]
+}
+
+function isEmpty(value) {
+    return value===undefined || value===null || value===WAITING ||
+        (typeof value==="object" && Object.keys(value).length===0)
+}
 
 module.exports = function (app) {
 
@@ -38,9 +97,26 @@ module.exports = function (app) {
 
     var unsubscribes = []
     let timerId
-    let metrics
+    let metrics = []
     let pathConfig = {}
     let valueConfig = {}
+    let running = false         // guards the asynchronous influx health check against an early stop
+    let generation = 0          // ... and against a check of a previous start completing after a restart
+    let reported = ''           // last plugin status set from the offline cache
+
+    // plugin status from the offline cache: pending files are shown, a filling cache is raised as error
+    function reportCache() {
+        const state = cache.usage(influxConfig.cacheDir)
+        const message = state.files===0 ? 'Started' :
+            (state.warning ? `Influx writes failing - offline cache ${state.message}` : `Started - offline cache ${state.message}`)
+        if (message===reported)
+            return
+        reported = message
+        if (state.warning)
+            app.setPluginError(message)
+        else
+            app.setPluginStatus(message)
+    }
 
     function source(update) {
         if (update['$source']) {
@@ -51,244 +127,206 @@ module.exports = function (app) {
         return ''
     }
 
-    function subscribe(influxDB, result) {
-        if (influxConfig.initialized && result.status === 'pass' ) {
-            // ready to subscribe
-            app.debug({
+    // timestamp for forecast paths - the time the forecast is valid for
+    function forecastTime(timestamp) {
+        const fctime = app.getSelfPath('environment.forecast.time')
+        if (fctime && fctime.value && fctime.value!==WAITING) {
+            const time = DateTime.fromISO(fctime.value)
+            if (time.isValid)
+                return time.toUTC()
+        }
+        if (influxConfig.currentForecast && influxConfig.currentForecast.isValid)
+            return influxConfig.currentForecast.toUTC()
+        return timestamp
+    }
+
+    function subscribe(influxDB, result, started) {
+        if (!running || started!==generation) {
+            log('Plugin stopped before influx health check completed - not subscribing')
+            return false
+        }
+        // influx is checked once on start: if it fails, the plugin is set to error and keeps publishing predictions
+        influxConfig.online = (result && result.status === 'pass')
+        if (influxConfig.online)
+            log({
                 organization: influxConfig.organization,
                 buckets: {
                     write: influxConfig.bucket,
                     read: influxConfig.read
                 }
             })
-            //configure paths
-            if (influxConfig.paths.length===0) {
-                // Reconfig subscriptions
-                let interval = 1000      
-                influxConfig.paths = [
-                    { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
-                    { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
-                    { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
-                    { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
-                    { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
-                    { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
-                    { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
-                    { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval },                
-                    { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
-                    { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
-                ]
-                var options = app.readPluginOptions();
-                influx.save(app.getDataDirPath(), options.configuration.pathConfig, influxConfig.paths)
-            } 
-            if (influxConfig.paths.length>0)
-            {
-                influxConfig.paths.forEach(p => {
-                    if (p.hasOwnProperty('config'))
-                        pathConfig[p.path] = influx.reconfig(p.path, p.config)
-                    if (p.hasOwnProperty('convert'))
-                        valueConfig[p.path] = p.convert                                         
-                    if (p.hasOwnProperty('trend')) {
-                        barometer.addSubscriptionHandler(p.trend, p.path)
-                        appconfig.addSubscription(p.trend, p.path)
-                        // hack: server version > 1.39, startup timing issue
-                        let val = app.getSelfPath(p.path)
-                        if (p.trend==='altitude' && val && val.value) {
-                            barometer.onElevationUpdate(val.value)
-                        }
-                    }
-                });
-            }
-            // preload barometer
-            let preload = barometer.preLoad()
-            if (preload)
-            {
-                sendDelta(preload.update)
-                if (preload.meta!==null)
-                    sendMeta(preload.meta)
-            }
-            app.setPluginStatus('Initialized');
-            // ready to push data
-            timerId = setInterval(() => {
-                app.debug(`Sending ${metrics.length} data points to be uploaded to influx`)
-                if (metrics.length !== 0) {
-                    influx.post(influxDB, metrics, influxConfig)
-                    influx.buffer(metrics)
-                    metrics = []
-                }
-                let updates = barometer.getTrendAndPredictions(2*influxConfig.loadFrequency*1000)
-                if (updates.length>0)
-                    sendDelta(updates)
-            }, influxConfig.loadFrequency*1000)
-            app.debug(`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
-              
-            let localSubscription = {
-                context: 'vessels.self', // Get data only for self context
-                subscribe: influxConfig.paths
-            };
-
-            app.subscriptionmanager.subscribe (
-                localSubscription,
-                unsubscribes,
-                subscriptionError => {
-                    app.error('Error:' + subscriptionError);
-                },
-                delta => {
-                    if (!Array.isArray(delta.updates)) 
-                      return
-                    delta.updates.forEach(u => {
-                        if (!u.values || u.values[0].path==='' || u.values[0].value===WAITING || u.values[0].value===null || 
-                            (typeof u.values[0].value==="object" && Object.keys(u.values[0].value)===0))
-                            return
-                        const path = pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path
-                        const values = !valueConfig[u.values[0].path] ? u.values[0].value : 
-                            convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value
-                        var timestamp = DateTime.fromISO(u.timestamp).toUTC()
-                        if (path==='environment.forecast.time')
-                            // conversion not required due to dt format change in openweather plugin (v0.5) 
-                            influxConfig.currentForecast = DateTime.fromISO(u.values[0].value)
-                        else {
-                            if (path.includes('environment.forecast')) {
-                                let fctime = app.getSelfPath('environment.forecast.time')
-                                if (!fctime && !influxConfig.currentForecast)
-                                    ; // do nothing
-                                else if (!fctime || fctime.value===null || fctime.value===WAITING)
-                                    timestamp = influxConfig.currentForecast.toUTC()
-                                else
-                                    timestamp = DateTime.fromISO(fctime.value).toUTC()
-                                }
-                            else if (barometer.isSubscribed(u.values[0].path))
-                            {   // fix: subscription is on the original path 
-                                barometer.onDeltaUpdate(u)
-                            }
-                            if (path.includes('environment'))
-                            {
-                                const metric = influx.format(path, values, timestamp, source(u))
-                                if (metric!==null)
-                                    metrics.push(metric)
-                            }
-                        }
-                    })
-                }
-            );
-            app.setPluginStatus('Started');
-            app.debug('Plugin started');
-            return true
+        //configure paths
+        if (influxConfig.paths.length===0) {
+            influxConfig.paths = minimalPaths()
+            influx.save(path.dirname(influxConfig.configFile), path.basename(influxConfig.configFile), influxConfig.paths)
         }
-        else
+        influxConfig.paths.forEach(p => {
+            if (p.hasOwnProperty('config'))
+                pathConfig[p.path] = influx.reconfig(p.path, p.config)
+            if (p.hasOwnProperty('convert'))
+                valueConfig[p.path] = p.convert
+            if (p.hasOwnProperty('trend')) {
+                barometer.addSubscriptionHandler(p.trend, p.path)
+                appconfig.addSubscription(p.trend, p.path)
+                // hack: server version > 1.39, startup timing issue
+                let val = app.getSelfPath(p.path)
+                if (p.trend==='altitude' && val && val.value) {
+                    barometer.onElevationUpdate(val.value)
+                }
+            }
+        });
+        // preload barometer
+        let preload = barometer.preLoad()
+        if (preload)
         {
-            app.setPluginError('Failed to connect to Influx');
-            return false
+            sendDelta(preload.update)
+            if (preload.meta!==null)
+                sendMeta(preload.meta)
         }
+        app.setPluginStatus('Initialized');
+        // ready to push data
+        timerId = setInterval(() => {
+            if (influxConfig.online && metrics.length !== 0) {
+                log(`Sending ${metrics.length} data points to be uploaded to influx`)
+                influx.post(influxDB, metrics, influxConfig)
+                influx.buffer(metrics)
+                metrics = []
+            }
+            if (influxConfig.online)
+                reportCache()
+            let updates = barometer.getTrendAndPredictions(2*influxConfig.loadFrequency*1000)
+            if (updates.length>0)
+                sendDelta(updates)
+        }, influxConfig.loadFrequency*1000)
+        log(`Interval started, upload frequency: ${influxConfig.loadFrequency}s`)
+
+        let localSubscription = {
+            context: 'vessels.self', // Get data only for self context
+            subscribe: influxConfig.paths
+        };
+
+        app.subscriptionmanager.subscribe (
+            localSubscription,
+            unsubscribes,
+            subscriptionError => {
+                app.error('Error:' + subscriptionError);
+            },
+            delta => {
+                if (!Array.isArray(delta.updates))
+                  return
+                delta.updates.forEach(u => {
+                    if (!Array.isArray(u.values) || u.values.length===0 || !u.values[0].path || isEmpty(u.values[0].value))
+                        return
+                    const path = pathConfig[u.values[0].path] ? pathConfig[u.values[0].path] : u.values[0].path
+                    const values = !valueConfig[u.values[0].path] ? u.values[0].value :
+                        convert.toTarget(valueConfig[u.values[0].path].split('|>')[0], u.values[0].value, valueConfig[u.values[0].path].split('|>')[1]).value
+                    let timestamp = DateTime.fromISO(u.timestamp).toUTC()
+                    if (path==='environment.forecast.time') {
+                        // conversion not required due to dt format change in openweather plugin (v0.5)
+                        influxConfig.currentForecast = DateTime.fromISO(u.values[0].value)
+                        return
+                    }
+                    if (path.includes('environment.forecast'))
+                        timestamp = forecastTime(timestamp)
+                    else if (barometer.isSubscribed(u.values[0].path))
+                        // fix: subscription is on the original path
+                        barometer.onDeltaUpdate(u)
+                    if (influxConfig.online && path.includes('environment'))
+                    {
+                        const metric = influx.format(path, values, timestamp, source(u))
+                        if (metric!==null)
+                            metrics.push(metric)
+                    }
+                })
+            }
+        );
+        if (influxConfig.online) {
+            reported = ''
+            reportCache()
+            log('Plugin started');
+        } else {
+            // the exact reason helps when checking the plugins after a server restart
+            const reason = result && result.message ? ` (${result.message})` : ''
+            app.setPluginError(`Failed to connect to Influx${reason} - publishing predictions only`);
+            log(`Influx not available${reason} - publishing predictions only`);
+        }
+        return influxConfig.online
     }
 
     plugin.start = function (options, restartPlugin) {
 
-        app.debug('Plugin starting ...');
+        log('Plugin starting ...');
         app.setPluginStatus('Initializing');
+        running = true
+        const started = ++generation
 
         metrics = []
+        pathConfig = {}
+        valueConfig = {}
+        influxConfig = { initialized: false, online: false }
         influxConfig.cacheDir = app.getDataDirPath()
-        var configFile = options.pathConfig
         if (!options.pathConfig)
-        {   
-            options.pathConfig = 'pathconfig.json'
-            let interval = 1000
-            let hourly = Math.min(60*60*1000, 60*60*interval)
-            configFile = influx.save(app.getDataDirPath(), options.pathConfig, [
-                { path: 'environment.forecast.time', period: 10*interval, policy: "fixed" },
-                { path: 'environment.outside.temperature', policy: "instant", minPeriod: interval, trend: "temperature" },
-                { path: 'environment.forecast.temperature', period: hourly, policy: "fixed" },
-                { path: 'environment.forecast.temperature.minimum', period: hourly, policy: "fixed" },
-                { path: 'environment.forecast.temperature.maximum', period: hourly, policy: "fixed" },
-                { path: 'environment.forecast.today.temperature.minimum', period: hourly, policy: "fixed" },
-                { path: 'environment.forecast.today.temperature.maximum', period: hourly, policy: "fixed" },
-                { path: 'environment.forecast.temperature.feelslike', period: hourly, policy: "fixed" },
-                { path: 'environment.outside.pressure', policy: "instant", minPeriod: interval, trend: "pressure" },
-                { path: 'environment.forecast.pressure', period: hourly, policy: "fixed" },
-                { path: 'environment.outside.humidity', policy: "instant", minPeriod: interval },
-                { path: 'environment.outside.relativeHumidity', policy: "instant", minPeriod: interval, config: 'relativeHumidity|>humidity' },
-                { path: 'environment.forecast.relativeHumidity', period: hourly, policy: "fixed", config: 'relativeHumidity|>humidity' },
-                { path: 'environment.forecast.description', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.wind.direction', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.wind.speed', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.wind.gust', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.weather.visibility', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.weather.clouds', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.weather.uvindex', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.weather.icon', period: hourly, policy:"fixed" },
-                { path: 'environment.forecast.weather.code', period: hourly, policy:"fixed" },
-                { path: 'environment.wind.directionTrue', period: 10*interval, policy: "fixed", trend: "winddir", config: "wind.directionTrue|>outside.wind.direction" },
-                { path: 'environment.outside.wind.direction', policy :"instant", minPeriod: interval, trend: "winddir" },
-                { path: 'environment.outside.wind.speed', policy :"instant", minPeriod: interval },
-                { path: 'environment.outside.wind.gust', policy :"instant", minPeriod: interval },                
-                { path: 'navigation.gnss.antennaAltitude', period: 60*interval, policy: 'fixed', trend:'altitude' },
-                { path: 'navigation.position', period: 60*interval, policy: 'fixed', trend: 'position' }
-            ])
-            app.debug('No path configuration provided, using default configuration and saving to plugin data directory')
-            app.savePluginOptions(options, () => {app.debug('Plugin options saved')});
+        {
+            options.pathConfig = DEFAULT_CONFIG
+            influx.save(app.getDataDirPath(), options.pathConfig, defaultPaths())
+            log('No path configuration provided, using default configuration and saving to plugin data directory')
+            app.savePluginOptions(options, () => {log('Plugin options saved')});
         }
-        try {
-            influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
-        } catch {
-            let paths = influx.config('environment', 10*1000)
-            influx.config('navigation', 0).forEach(p => paths.push(p))
-            configFile = influx.save(app.getDataDirPath(), options.pathConfig, paths)
-            influxConfig.paths = require(configFile.includes('/') ? configFile : require('path').join(app.getDataDirPath(), configFile))
-        }
+        // re-read on every start - a restart from the server UI picks up changes of the file
+        influxConfig.configFile = options.pathConfig.includes('/') ? options.pathConfig : path.join(app.getDataDirPath(), options.pathConfig)
+        influxConfig.paths = influx.config(influxConfig.configFile)
         influxConfig.organization = (options.influxOrg ? options.influxOrg : '')
         influxConfig.bucket = (options.influxBucket ? options.influxBucket : '')
         influxConfig.read = (options.influxRead ? options.influxRead : (options.influxBucket ? options.influxBucket : ''))
         influxConfig.retention = (options.writeRetention ? options.writeRetention : 3)
+        influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
         appconfig.addInflux('id', influxConfig.id)
 
+        // predictions do not depend on influx - restore the pressure history saved on the last stop
+        barometer.init(options["barometer"], influxConfig.loadFrequency)
+        barometer.restore(app.getDataDirPath())
+
+        const token = options.influxToken || ''
         const influxDB = influx.login({
             url: options.influxUri,         // get from options
-            token: options.influxToken,     // get from options
+            token: token,                   // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
         }, influxConfig.cacheDir)
         appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
-        appconfig.addInflux('token', options.influxToken)
+        appconfig.addInflux('token', token)
         appconfig.addInflux('org', influxConfig.organization)
         appconfig.addInflux('write', influxConfig.bucket)
         appconfig.addInflux('read', influxConfig.read)
         appconfig.addInflux('retention', influxConfig.retention)
-        appconfig.addInflux('username', options.influxToken.includes(':') ? options.influxToken.split(':')[0] : '') // not relevant for >2.x
-        appconfig.addInflux('password', options.influxToken.includes(':') ? options.influxToken.split(':')[1] : '') // not relevant for >2.x
-        let connectionString = []
-        if (!options.selfRef) {
-            connectionString.push('http://localhost:3000'); // default local server
-            connectionString.push(''); // empty username
-            connectionString.push(''); // empty password
-        } else if (connectionString.length===1) {           // server only
-            connectionString.push(''); // empty username
-            connectionString.push(''); // empty password
-        } else {
-            connectionString=options.selfRef.split('|')
-        }
-        appconfig.init(connectionString[0], connectionString[1], connectionString[2], app.debug)
-        influxConfig.initialized = influx.health(influxDB, subscribe)
-        influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
-        // TODO: if configured
-        barometer.init(options["barometer"], influxConfig.loadFrequency)
+        appconfig.addInflux('username', token.includes(':') ? token.split(':')[0] : '') // not relevant for >2.x
+        appconfig.addInflux('password', token.includes(':') ? token.split(':')[1] : '') // not relevant for >2.x
+        // server|username|password - defaults to the local server without credentials
+        const connectionString = options.selfRef ? options.selfRef.split('|') : ['http://localhost:3000']
+        appconfig.init(connectionString[0], connectionString[1] || '', connectionString[2] || '')
+        influxConfig.initialized = true
+        influx.health(influxDB, (db, result) => subscribe(db, result, started))
 
-        app.debug('Plugin initialized');
+        log('Plugin initialized');
     };
 
     plugin.stop = function () {
+        running = false
         unsubscribes.forEach(f => f());
         unsubscribes = [];
         clearInterval(timerId)
-        app.debug('Interval Timer Stopped')
+        timerId = undefined
+        log('Interval Timer Stopped')
         metrics = influx.flush(metrics, influxConfig.cacheDir ? influxConfig.cacheDir : app.getDataDirPath())
-        app.debug('Plugin stopped');
+        barometer.persist(app.getDataDirPath())
+        log('Plugin stopped');
     };
 
     plugin.schema = {
         type: 'object',
         required: [
             'influxUri',
-            'influxToken', 
+            'influxToken',
             'influxBucket',
             'pathConfig',
             'loadFrequency'
@@ -345,10 +383,10 @@ module.exports = function (app) {
         }
     };
 
-    
+
     /**
-     * 
-     * @param {Array<[{path:path, value:value}]>} messages 
+     *
+     * @param {Array<[{path:path, value:value}]>} messages
      */
     function sendDelta(messages) {
         app.handleMessage('signalk-barograph', {
@@ -366,7 +404,7 @@ module.exports = function (app) {
                 {
                     meta: units
                 }
-            ]   
+            ]
         })
     }
 

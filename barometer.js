@@ -1,6 +1,6 @@
 const predictions = require ('barometer-trend')
 
-/* 
+/*
     Copyright © 2021 Inspired Technologies GmbH. Rights Reserved.
 
     Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,10 +16,18 @@ const predictions = require ('barometer-trend')
     limitations under the License.
 */
 
+const fs = require('fs')
+const path = require('path')
 const units = require ('./skunits')
 const log = require('debug')('signalk-barograph:barometer')
 
+const WAITING = "waiting ..."
+const SAMPLE_RATE = 60 * 1000                       // pressure readings used for predictions - at most one per minute
+const HISTORY = 48 * 60 * 60 * 1000                 // barometer-trend keeps 48h
+const HISTORY_FILE = 'barometer.pressures.json'     // pressure history saved on plugin stop
+
 let refreshRate = null
+let sampleRate = SAMPLE_RATE
 let currentPressure = '';
 let currentTemperature = '';
 let currentWindDirection = ''
@@ -34,15 +42,16 @@ const barometerTrend = pathPrefix+"trend";                  // severity, trend, 
 const trendDifference = pathPrefix+"trend.difference";      // difference
 const trendPeriod = pathPrefix+"trend.period";              // period
 const barometerPrediction = pathPrefix+"prediction";        // season
-const predictionWind = pathPrefix+"wind.predicted";         // beaufort 
-const predictionWindDir = pathPrefix+"wind.direction";      // quadrant 
-const predictionWindMin = pathPrefix+"wind.minimum";        // beaufort -> range 
+const predictionWind = pathPrefix+"wind.predicted";         // beaufort
+const predictionWindDir = pathPrefix+"wind.direction";      // quadrant
+const predictionWindMin = pathPrefix+"wind.minimum";        // beaufort -> range
 const predictionWindMax = pathPrefix+"wind.maximum";        // beaufort -> range
 const predictionFront = pathPrefix+"front.predicted";       // front
 const barometerDescription = pathPrefix+'description';
 
 const latest = {
     update: null,
+    sampled: null,
     hemisphere: 'N',
     pressure: null,
     temperature: null,
@@ -55,7 +64,7 @@ const latest = {
 
 let subscriptionHandler = []
 function addSubscriptionHandler (type, path) {
-    let handler
+    let handler = null
     switch (type) {
         case 'pressure':
             currentPressure = path
@@ -78,6 +87,7 @@ function addSubscriptionHandler (type, path) {
             handler = { path: navigationPosition, handle: (value) => onPositionUpdate(value) }
             break;
         default:
+            log(`Unknown trend type '${type}' for ${path} - ignored`)
             break;
     }
     if (handler!==null)
@@ -85,12 +95,12 @@ function addSubscriptionHandler (type, path) {
 }
 
 function onDeltaUpdate(update) {
+    if (!update || !Array.isArray(update.values))
+        return
     update.values.forEach((value) => {
-        let onDeltaUpdated = subscriptionHandler.find((d) => d.path === value.path);
-
-        if (onDeltaUpdated !== null) {
-            onDeltaUpdated.handle(value.value);
-        }
+        subscriptionHandler
+            .filter((d) => d.path === value.path)
+            .forEach((d) => d.handle(value.value))
     });
 }
 
@@ -104,19 +114,18 @@ function getTrendAndPredictions (interval) {
             {
                 // determine Forecast
                 latest.update = Date.now()
-                latest.trend = forecast.trend 
+                latest.trend = forecast.trend
                 latest.prediction = forecast.predictions
                 latest.description = forecast.predictions.pressureOnly
-                // +", Wind forecast: "+forecast.predictions.beaufort
-                log ({ 
-                    count: predictions.getPressureCount(), 
-                    trend: `${latest.trend.trend} ${latest.trend.tendency}`, 
-                    prediction: latest.prediction.pressureOnly 
+                log ({
+                    count: predictions.getPressureCount(),
+                    trend: `${latest.trend.trend} ${latest.trend.tendency}`,
+                    prediction: latest.prediction.pressureOnly
                 })
                 // add Messages
                 prepareUpdate('description').forEach(m => messages.push(m))
-                prepareUpdate('trend').forEach(m => messages.push(m)) 
-                prepareUpdate('prediction').forEach(m => messages.push(m))               
+                prepareUpdate('trend').forEach(m => messages.push(m))
+                prepareUpdate('prediction').forEach(m => messages.push(m))
             }
         }
         catch (err) {
@@ -124,61 +133,68 @@ function getTrendAndPredictions (interval) {
         }
     }
     return messages
-} 
+}
+
+function addPressure(time, value) {
+    predictions.addPressure(new Date(time), value,
+        (latest.altitude!==null ? latest.altitude.value : null),
+        (latest.temperature!==null ? latest.temperature.value : null),
+        (latest.winddir!==null ? units.toTarget('rad', latest.winddir.value, 'deg', 0).value : null))
+}
 
 function onPressureUpdate(value) {
-    if (value === null) 
+    if (value === null || value === undefined)
     {
         log("Cannot add null value as pressure - ignoring ...");
     }
-    else if (value!=="waiting ...")
+    else if (value!==WAITING)
     {
         latest.pressure = { value, time: Date.now() }
-        predictions.addPressure(new Date(latest.pressure.time), value, 
-            (latest.altitude!==null ? latest.altitude.value : null),
-            (latest.temperature!==null ? latest.temperature.value : null),
-            (latest.winddir!==null ? units.toTarget('rad', latest.winddir.value, 'deg', 0).value : null))
-        log({ pressure: latest.pressure.value, altitude: (latest.altitude!==null ? latest.altitude.value : null), 
-            temperature: (latest.temperature!==null ? latest.temperature.value : null), 
+        // predictions only need a reading per minute, independent of the subscription period
+        if (latest.sampled!==null && latest.pressure.time-latest.sampled < sampleRate)
+            return
+        latest.sampled = latest.pressure.time
+        addPressure(latest.pressure.time, value)
+        log({ pressure: latest.pressure.value, altitude: (latest.altitude!==null ? latest.altitude.value : null),
+            temperature: (latest.temperature!==null ? latest.temperature.value : null),
             winddir: (latest.winddir!==null ? Math.round(latest.winddir.value*100)/100 : null) });
     }
 }
 
 function onTemperatureUpdate(value) {
-    if (value === null) 
+    if (value === null || value === undefined)
         log("Cannot add null value as temperature - ignoring ...");
-    else if (value!=="waiting ...")
+    else if (value!==WAITING)
         latest.temperature = { value, time: Date.now() }
 }
 
 function onWindDirUpdate(value) {
-    if (value === null) 
+    if (value === null || value === undefined)
         log("Cannot add null value as wind direction - ignoring ...");
-    else if (value!=="waiting ...")
+    else if (value!==WAITING)
         latest.winddir = { value, time: Date.now() }
 }
 
 function onElevationUpdate(value) {
-    if (value === null) 
+    if (value === null || value === undefined)
     {
         log("Cannot add null value as elevation - using 0 instead");
-        latest.altitude.elevation = 0
+        latest.altitude = { value: 0, time: Date.now() }
     }
-    else if (value!=="waiting ...")
+    else if (value!==WAITING)
     {
-        latest.altitude = { value, time: Date.now() } 
+        latest.altitude = { value, time: Date.now() }
         log("Elevation set to "+value+"m above sea level");
     }
 }
 
 function onPositionUpdate(value) {
-    let current = latest.hemisphere 
-    if (value === null) 
+    let current = latest.hemisphere
+    if (value === null || value === undefined || typeof value.latitude !== 'number')
     {
-        log("Cannot add null value as position - defaulting to northern hemisphere");
-        latest.hemisphere = 'N'
+        log("Cannot use position without latitude - keeping "+latest.hemisphere+" hemisphere");
     }
-    else if (lastUpdateWithin(30*60*1000))
+    else
     {
         latest.hemisphere = value.latitude < 0 ? 'S' : 'N';
     }
@@ -186,33 +202,15 @@ function onPositionUpdate(value) {
         log("Hemisphere set to "+latest.hemisphere);
 }
 
-function predictWindSpeed(prediction, calc) {
-    if (prediction==='Less than F6') {
-        if (calc==='min')
-            return 0;
-        else
-            return 6;
-    } else {
-        if (prediction.includes('-')) {
-            forecast = prediction.replace('F', '').split('-')
-            if (calc==='min')
-                return forecast[0]
-            else
-                return forecast[1]
-        } else if (prediction.includes('+')) {
-            forecast = prediction.replace('F', '').split('+')
-            if (calc==='min')
-                return forecast[0]
-            else
-                return 12
-        } else {
-            return int.parse(prediction.replace('F', ''))
-        }
-    }
+// wind speed range in m/s for the predicted Beaufort force - barometer-trend provides min/max force
+function predictWindSpeed(beaufort, calc) {
+    if (!beaufort || beaufort.force==='Unknown' || typeof beaufort[calc]!=='number')
+        return null
+    return units.toSignalK(calc==='min' ? 'BftMin' : 'BftMax', beaufort[calc]).value
 }
 
 function prepareUpdate(type) {
-    const noData = "waiting ..."
+    const noData = WAITING
     const noVal = null
     switch (type) {
         case 'description': return [
@@ -227,8 +225,8 @@ function prepareUpdate(type) {
             buildDeltaUpdate(type, barometerPrediction, latest.prediction !== null ? latest.prediction.season : noData),
             buildDeltaUpdate(type, predictionWind, latest.prediction !== null ? latest.prediction.beaufort.force : noData),
             buildDeltaUpdate(type, predictionWindDir, latest.prediction !== null ? latest.prediction.quadrant : noData),
-            buildDeltaUpdate(type, predictionWindMin, latest.prediction !== null ? units.toSignalK('BftMin', predictWindSpeed(latest.prediction.beaufort.force, 'min')).value : noVal),
-            buildDeltaUpdate(type, predictionWindMax, latest.prediction !== null ? units.toSignalK('BftMax', predictWindSpeed(latest.prediction.beaufort.force, 'max')).value : noVal),
+            buildDeltaUpdate(type, predictionWindMin, latest.prediction !== null ? predictWindSpeed(latest.prediction.beaufort, 'min') : noVal),
+            buildDeltaUpdate(type, predictionWindMax, latest.prediction !== null ? predictWindSpeed(latest.prediction.beaufort, 'max') : noVal),
             buildDeltaUpdate(type, predictionFront, latest.prediction !== null ? latest.prediction.front: { key: 'N/A' }),
         ];
         case 'meta-trend': return [
@@ -275,19 +273,70 @@ function lastUpdateWithin(interval) {
     return latest.update !== null ? (Date.now() - latest.update) <= interval : false;
 }
 
+// save the pressure history once on plugin stop - restored on the next start
+function persist(dir) {
+    if (!dir || !predictions.hasPressures())
+        return false
+    const file = path.join(dir, HISTORY_FILE)
+    try {
+        const history = predictions.getAll().map(p => ({ datetime: p.datetime.getTime(), meta: p.meta }))
+        fs.writeFileSync(file + '.tmp', JSON.stringify(history))
+        fs.renameSync(file + '.tmp', file)
+        log(`Saved ${history.length} pressure reading(s) to ${HISTORY_FILE}`)
+        return true
+    } catch (err) {
+        log(`Cannot save pressure history: ${err.message}`)
+        return false
+    }
+}
+
+// restore the pressure history of the last 48h saved on plugin stop
+function restore(dir) {
+    if (!dir)
+        return 0
+    const file = path.join(dir, HISTORY_FILE)
+    if (!fs.existsSync(file))
+        return 0
+    try {
+        const threshold = Date.now() - HISTORY
+        const history = JSON.parse(fs.readFileSync(file, 'utf8'))
+            .filter(p => p && p.meta && typeof p.meta.value === 'number' && p.datetime >= threshold)
+            .sort((a, b) => a.datetime - b.datetime)
+        history.forEach(p => predictions.addPressure(new Date(p.datetime), p.meta.value, p.meta.altitude, p.meta.temperature, p.meta.twd))
+        if (history.length > 0)
+            latest.sampled = history[history.length-1].datetime
+        log(`Restored ${history.length} pressure reading(s) from ${HISTORY_FILE}`)
+        return history.length
+    } catch (err) {
+        log(`Cannot restore pressure history: ${err.message}`)
+        return 0
+    }
+}
+
 module.exports = {
-    addSubscriptionHandler,    
+    addSubscriptionHandler,
     isSubscribed,
     preLoad,
     onDeltaUpdate,
     onElevationUpdate,
     getTrendAndPredictions,
+    persist,
+    restore,
+    predictWindSpeed,
 
-    init: function(prefix, interval) {
+    init: function(prefix, interval, rate) {
         latest.update = null;
+        latest.sampled = null;
+        latest.trend = null;
+        latest.prediction = null;
+        latest.description = null;
         refreshRate = interval * 1000;
+        sampleRate = (typeof rate === 'number' && rate >= 0 ? rate : SAMPLE_RATE);
+        subscriptionHandler = [];
+        currentPressure = currentTemperature = currentWindDirection = navigationAltitude = navigationPosition = '';
         predictions.clear();
-        if (prefix!=='')
+        // note: the published paths are fixed to environment.barometer.*
+        if (prefix)
             pathPrefix = 'environment.'+prefix+'.'
     }
 }
