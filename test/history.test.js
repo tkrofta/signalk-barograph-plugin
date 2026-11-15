@@ -13,8 +13,9 @@ describe('history queries', () => {
     assert.equal(history.series('pressure'), null);
   });
 
-  it('scales the resolution to about 180 points per timescale', () => {
-    assert.deepEqual(history.TIMESCALES.map(history.resolution), [60, 240, 480, 960, 1440]);
+  it('scales the resolution to about 720 points per timescale, read bucket not below 5 minutes', () => {
+    assert.deepEqual(history.TIMESCALES.map((h) => history.resolution(h)), [60, 60, 120, 240, 360]);
+    assert.deepEqual(history.TIMESCALES.map((h) => history.resolution(h, true)), [300, 300, 300, 300, 360]);
   });
 
   it('uses the write bucket within the retention and the read bucket beyond', () => {
@@ -24,7 +25,7 @@ describe('history queries', () => {
     const older = history.fluxQuery(v2, 'environment.outside.pressure', 48);
     assert.match(older, /from\(bucket: "downsampled"\)/);
     assert.match(older, /r\["_field"\] == "average"/);
-    assert.match(older, /aggregateWindow\(every: 960s, fn: mean, createEmpty: false\)/);
+    assert.match(older, /aggregateWindow\(every: 300s, fn: mean, createEmpty: false\)/);
     // without a separate read bucket the written field is used for every timescale
     assert.match(history.fluxQuery({ ...v2, read: 'raw' }, 'environment.outside.pressure', 72), /from\(bucket: "raw"\).*"_field"\] == "value"/);
   });
@@ -41,7 +42,7 @@ describe('history queries', () => {
     assert.equal(recent.db, 'signalk');
     assert.equal(recent.q, `SELECT mean("value") FROM "signalk"."autogen"."pressure" WHERE time > now() - 3h AND "environment" = 'outside' AND "id" = '211234560' AND "source" != '' GROUP BY time(60s) fill(none)`);
     const older = history.influxQL(v1, 'environment.outside.pressure', 72);
-    assert.match(older.q, /^SELECT mean\("average"\) FROM "signalk"."weekly"."pressure" .* GROUP BY time\(1440s\)/);
+    assert.match(older.q, /^SELECT mean\("average"\) FROM "signalk"."weekly"."pressure" .* GROUP BY time\(360s\)/);
     assert.match(history.influxQL({ ...v1, bucket: 'signalk' }, 'environment.outside.pressure', 3).q, /FROM "signalk".."pressure"/);
   });
 
@@ -70,5 +71,19 @@ describe('history queries', () => {
     const result = await history.query(null, v1, 'environment.outside.pressure', 500, empty);
     assert.equal(result.hours, 72);
     assert.deepEqual(result.data, []);
+  });
+});
+
+describe('history of one source', () => {
+  it('limits Flux and InfluxQL to the source and rejects invalid sources', async () => {
+    const config = { bucket: 'b', organization: 'o', retention: 3 };
+    assert.ok(history.fluxQuery(config, 'environment.forecast.pressure', 3, { source: 'openmeteo-signalk.icon_d2' })
+      .includes('r["source"] == "openmeteo-signalk.icon_d2"'));
+    const { q } = history.influxQL({ bucket: 'signalk/autogen' }, 'environment.forecast.pressure', 3, { source: 'openmeteo-signalk.icon_d2' });
+    assert.match(q, /"source" = 'openmeteo-signalk\.icon_d2'/);
+    assert.doesNotMatch(q, /"source" != ''/);
+    assert.equal(history.isSource('openmeteo-signalk.best_match'), true);
+    assert.equal(history.isSource("a' OR 1=1"), false);
+    await assert.rejects(history.query(null, config, 'environment.forecast.pressure', 3, undefined, { source: 'a"b' }), { status: 400 });
   });
 });

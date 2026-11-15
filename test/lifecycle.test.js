@@ -229,6 +229,18 @@ describe('plugin lifecycle', () => {
     assert.ok(write.lines.some((line) => line.startsWith('humidity,')));
   });
 
+  it('writes forecasts at the time they are valid for, taken from the same source', async () => {
+    const before = recorded.writes.length;
+    const valid = '2026-11-15T13:00:00.000Z';
+    onDelta(delta('environment.forecast.time', valid, 'openmeteo-signalk.icon_seamless'));
+    onDelta(delta('environment.forecast.time', '2026-11-15T15:00:00.000Z', 'openweather'));
+    onDelta(delta('environment.forecast.pressure', 100500, 'openmeteo-signalk.icon_seamless'));
+    await waitFor(() => recorded.writes.slice(before).some((w) => w.lines.some((l) => l.startsWith('pressure,environment=forecast'))), 'forecast to be written');
+    const line = recorded.writes.slice(before).flatMap((w) => w.lines).find((l) => l.startsWith('pressure,environment=forecast'));
+    assert.ok(line.includes('source=openmeteo-signalk.icon_seamless'), line);
+    assert.ok(line.endsWith(` ${Date.parse(valid)}`), line);
+  });
+
   it('ignores empty and placeholder delta values', async () => {
     const before = recorded.writes.length;
     onDelta(delta('environment.outside.pressure', null));
@@ -259,6 +271,26 @@ describe('plugin lifecycle', () => {
     assert.deepEqual(res.body.history.timescales, [3, 12, 24, 48, 72]);
     assert.deepEqual(res.body.history.buckets, { write: 'test-bucket', read: 'test-bucket' });
     assert.doesNotMatch(JSON.stringify(res.body), /test-token|token/);
+    // forecast trace only with the Open-Meteo plugin installed and enabled
+    assert.equal(res.body.forecast.available, false);
+    assert.equal(res.body.forecast.endpoint, '/plugins/openmeteo-signalk/forecast');
+    assert.equal(res.body.forecast.hours, 3);
+    try {
+      // documented feature detection (ServerAPI.getFeatures)
+      app.getFeatures = async () => ({ apis: [], plugins: [{ id: 'openmeteo-signalk', enabled: false }] });
+      assert.equal((await call(routes['/settings'])).body.forecast.available, false);
+      app.getFeatures = async () => ({ apis: ['weather'], plugins: [{ id: 'openmeteo-signalk', enabled: true }] });
+      assert.equal((await call(routes['/settings'])).body.forecast.available, true);
+      app.getFeatures = async () => { throw new Error('not ready'); };
+      assert.equal((await call(routes['/settings'])).body.forecast.available, false);
+      // the plugins list of the server as fallback
+      delete app.getFeatures;
+      app.getPluginsList = async () => [{ id: 'openmeteo-signalk', enabled: true }];
+      assert.equal((await call(routes['/settings'])).body.forecast.available, true);
+    } finally {
+      delete app.getFeatures;
+      delete app.getPluginsList;
+    }
   });
 
   it('keeps the routes admin only on servers without router.access', () => {
@@ -287,6 +319,21 @@ describe('plugin lifecycle', () => {
 
     const invalid = await call(routes['/history'], { hours: 'abc' });
     assert.equal(invalid.code, 400);
+  });
+
+  it('queries the past forecasts of one source', async () => {
+    const { router, routes } = createRouter(true);
+    plugin.registerWithRouter(router);
+    const res = await call(routes['/history'], { hours: '12', series: 'forecast', source: 'openmeteo-signalk.icon_seamless' });
+    assert.equal(res.code, 200, JSON.stringify(res.body));
+    assert.equal(res.body.path, 'environment.forecast.pressure');
+    assert.equal(res.body.source, 'openmeteo-signalk.icon_seamless');
+    const query = recorded.queries[recorded.queries.length - 1];
+    assert.match(query, /r\["environment"\] == "forecast"/);
+    assert.ok(query.includes('r["source"] == "openmeteo-signalk.icon_seamless"'), query);
+
+    assert.equal((await call(routes['/history'], { series: 'forecast', source: 'x" or true' })).code, 400);
+    assert.equal((await call(routes['/history'], { series: 'temperature' })).code, 400);
   });
 
   it('openApi describes the routes', () => {
