@@ -22,7 +22,8 @@ const { DateTime } = require('luxon');
 const influx = require("./influx")
 const cache = require("./cache")
 const barometer = require("./barometer")
-const appconfig = require ("./appconfig")
+const history = require("./history")
+const openApi = require("./openApi.json")
 const convert = require("./skunits")
 const WAITING = 'waiting ...'
 const DEFAULT_CONFIG = 'pathconfig.json'
@@ -167,7 +168,7 @@ module.exports = function (app) {
                 valueConfig[p.path] = p.convert
             if (p.hasOwnProperty('trend')) {
                 barometer.addSubscriptionHandler(p.trend, p.path)
-                appconfig.addSubscription(p.trend, p.path)
+                influxConfig.trends[p.trend] = p.path
                 // hack: server version > 1.39, startup timing issue
                 let val = app.getSelfPath(p.path)
                 if (p.trend==='altitude' && val && val.value) {
@@ -263,7 +264,7 @@ module.exports = function (app) {
         metrics = []
         pathConfig = {}
         valueConfig = {}
-        influxConfig = { initialized: false, online: false }
+        influxConfig = { initialized: false, online: false, trends: {} }
         influxConfig.cacheDir = app.getDataDirPath()
         if (!options.pathConfig)
         {
@@ -281,29 +282,20 @@ module.exports = function (app) {
         influxConfig.retention = (options.writeRetention ? options.writeRetention : 3)
         influxConfig.loadFrequency = (options.loadFrequency ? options.loadFrequency : 30)
         influxConfig.id = app.getSelfPath('mmsi') ? app.getSelfPath('mmsi') : app.getSelfPath('uuid')
-        appconfig.addInflux('id', influxConfig.id)
 
         // predictions do not depend on influx - restore the pressure history saved on the last stop
         barometer.init(options["barometer"], influxConfig.loadFrequency)
         barometer.restore(app.getDataDirPath())
 
-        const token = options.influxToken || ''
+        // kept on the server only - the app queries the history through the plugin endpoint
+        influxConfig.url = options.influxUri
+        influxConfig.token = options.influxToken || ''
         const influxDB = influx.login({
-            url: options.influxUri,         // get from options
-            token: token,                   // get from options
+            url: influxConfig.url,          // get from options
+            token: influxConfig.token,      // get from options
             timeout: 10 * 1000              // 10sec timeout for health check
         }, influxConfig.cacheDir)
-        appconfig.addInflux('url', options.influxUri+(influxConfig.organization==='' ? '/api/v2/query' : ''))
-        appconfig.addInflux('token', token)
-        appconfig.addInflux('org', influxConfig.organization)
-        appconfig.addInflux('write', influxConfig.bucket)
-        appconfig.addInflux('read', influxConfig.read)
-        appconfig.addInflux('retention', influxConfig.retention)
-        appconfig.addInflux('username', token.includes(':') ? token.split(':')[0] : '') // not relevant for >2.x
-        appconfig.addInflux('password', token.includes(':') ? token.split(':')[1] : '') // not relevant for >2.x
-        // server|username|password - defaults to the local server without credentials
-        const connectionString = options.selfRef ? options.selfRef.split('|') : ['http://localhost:3000']
-        appconfig.init(connectionString[0], connectionString[1] || '', connectionString[2] || '')
+        influxConfig.client = influxDB
         influxConfig.initialized = true
         influx.health(influxDB, (db, result) => subscribe(db, result, started))
 
@@ -321,6 +313,52 @@ module.exports = function (app) {
         barometer.persist(app.getDataDirPath())
         log('Plugin stopped');
     };
+
+    // configuration for the barograph app - no credentials
+    function appSettings() {
+        const pressure = influxConfig.trends && influxConfig.trends.pressure
+        return {
+            running,
+            paths: {
+                pressure: pressure || 'environment.outside.pressure',
+                temperature: (influxConfig.trends && influxConfig.trends.temperature) || 'environment.outside.temperature',
+                altitude: (influxConfig.trends && influxConfig.trends.altitude) || 'navigation.gnss.antennaAltitude',
+                barometer: 'environment.barometer.'
+            },
+            history: {
+                available: !!(running && influxConfig.online),
+                retention: influxConfig.retention || 3,
+                timescales: history.TIMESCALES
+            },
+            interval: influxConfig.loadFrequency || 30
+        }
+    }
+
+    plugin.registerWithRouter = function (router) {
+        // any logged-in user may read (server >= 2.31), older servers keep plugin routes admin only
+        const readonly = typeof router.access === 'function' ? router.access('readonly') : router
+
+        readonly.get('/settings', (req, res) => {
+            res.json(appSettings())
+        })
+
+        readonly.get('/history', async (req, res) => {
+            if (!running || !influxConfig.online || !influxConfig.client) {
+                res.status(503).json({ message: 'influx not available' })
+                return
+            }
+            const settings = appSettings()
+            const source = pathConfig[settings.paths.pressure] || settings.paths.pressure
+            try {
+                res.json(await history.query(influxConfig.client, influxConfig, source, req.query.hours || 3))
+            } catch (err) {
+                log(`History query failed: ${err.message}`)
+                res.status(err.status || 502).json({ message: err.message })
+            }
+        })
+    }
+
+    plugin.getOpenApi = () => openApi
 
     plugin.schema = {
         type: 'object',
@@ -355,12 +393,6 @@ module.exports = function (app) {
                 type: 'string',
                 title: 'InfluxDB Read Bucket',
                 description: 'v2.x: [bucket]; v1.11.x: [database/retentionpolicy]',
-            },
-        "selfRef": {
-                type: 'string',
-                title: 'Connection String (server|username|password)',
-                default: 'http://localhost:3000|user|pwd',
-                description: 'SignalK Server credentials required to provide configuration to embedded web app'
             },
         "pathConfig": {
                 type: 'string',

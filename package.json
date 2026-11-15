@@ -7,10 +7,8 @@
     "@influxdata/influxdb-client": "^1.35.0",
     "@influxdata/influxdb-client-apis": "^1.35.0",
     "@signalk/signalk-schema": "^1.7.2",
-    "axios": "^1.20.0",
     "barometer-trend": "^2.2.7",
     "debug": "^4.4.3",
-    "js-yaml": "^5.4.3",
     "luxon": "^3.7.2"
   },
   "scripts": {
@@ -33,5 +31,12 @@
   "bugs": {
     "url": "https://github.com/tkrofta/signalk-barograph-plugin/issues"
   },
-  "homepage": "https://github.com/tkrofta/signalk-barograph-plugin"
+  "homepage": "https://github.com/tkrofta/signalk-barograph-plugin",
+  "engines": {
+    "node": ">=22"
+  },
+  "signalk": {
+    "displayName": "Barograph",
+    "appIcon": "img/logo192.png"
+  }
 }
