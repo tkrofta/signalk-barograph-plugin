@@ -202,10 +202,19 @@ function onPositionUpdate(value) {
         log("Hemisphere set to "+latest.hemisphere);
 }
 
-// wind speed range in m/s for the predicted Beaufort force - barometer-trend provides min/max force
+// wind speed range in m/s for the predicted Beaufort force - barometer-trend provides min/max force,
+// converted with the Beaufort scale of skunits: lower bound of the min force, upper bound of the max force
+// - 'Less than F6' (max 6) ends where F6 begins, so the ranges of neighbouring predictions do not overlap
+// - F12 has no upper bound: the maximum is null
 function predictWindSpeed(beaufort, calc) {
     if (!beaufort || beaufort.force==='Unknown' || typeof beaufort[calc]!=='number')
         return null
+    if (calc==='max') {
+        if (beaufort.max >= 12)
+            return null
+        if (typeof beaufort.force==='string' && beaufort.force.startsWith('Less'))
+            return units.toSignalK('BftMin', beaufort.max).value
+    }
     return units.toSignalK(calc==='min' ? 'BftMin' : 'BftMax', beaufort[calc]).value
 }
 
