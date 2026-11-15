@@ -25,10 +25,18 @@ const log = require("debug")("signalk-barograph:influx")
 const BatchSize = 5000
 
 let cacheDir = ''
-let cacheBuffer = []
+let cacheBuffer = []        // points posted but not yet confirmed - cached on flush (plugin stop)
+let replaying = false
 
 function buffer(metrics) {
-    metrics.forEach(m => cacheBuffer.push(m))
+    if (Array.isArray(metrics))
+        metrics.forEach(m => cacheBuffer.push(m))
+}
+
+// drop confirmed or cached points from the buffer
+function release(metrics) {
+    const done = new Set(metrics)
+    cacheBuffer = cacheBuffer.filter(p => !done.has(p))
 }
 
 function flush(metrics, cachedir) {
@@ -41,18 +49,17 @@ function flush(metrics, cachedir) {
     return []
   }
 
+// read a json configuration file - re-read on every call (no require cache), [] if missing or invalid
 function config(configfile, interval) {
-    if (interval<1000) interval = 1000
-    if (fs.existsSync(configfile))
-        try
-        {
-            let configPaths = require(configfile)
-            return configPaths
-        } catch {
-            return []
-        }
-    else 
+    if (!configfile || !fs.existsSync(configfile))
         return []
+    try {
+        const configPaths = JSON.parse(fs.readFileSync(configfile, 'utf8'))
+        return Array.isArray(configPaths) ? configPaths : []
+    } catch (err) {
+        log(`Invalid configuration ${configfile}: ${err.message}`)
+        return []
+    }
 }
 
 function reconfig (path, config) {
@@ -106,13 +113,7 @@ function match(paths, actual)
 }
 
 function save(dir, file, content) {
-    fs.writeFileSync(
-        path.join(dir, file),
-        JSON.stringify(content).concat("\n"), (err) => {
-          if (err) throw err;
-          return null
-        }
-      )
+    fs.writeFileSync(path.join(dir, file), JSON.stringify(content).concat("\n"))
     return file
 }
 
@@ -131,81 +132,96 @@ function login(clientOptions, cachedir) {
     }
 }
 
+// single health check - the callback receives { status: 'pass' } or { status: 'fail', message } in any case
 async function health (influxDB, callback) {
     if (!influxDB) {
         log("Influx healthCheck: No client!")
-        return false
+        return callback(influxDB, { status: 'fail', message: 'no influx client' })
     }
 
     log("Determining influx health")
     const healthAPI = new HealthAPI(influxDB)
-    
-    await healthAPI
-    .getHealth()
-    .then((result /* : HealthCheck */) => {
+
+    let result
+    try {
+        result = await healthAPI.getHealth()
         log('healthCheck: ' + (result.status === 'pass' ? 'OK' : 'NOT OK'))
-        return callback(influxDB, result) 
-   })
-    .catch(error => {
+    } catch (error) {
         log("HealthCheck "+error)
-        return false
-    })
+        result = { status: 'fail', message: error.message }
+    }
+    return callback(influxDB, result)
 }
 
-function post (influxdb, metrics, config) {
+// rebuild a point read from the cache - tags and fields are kept as serialized (line protocol encoded),
+// so every tag and the field type survive the round trip; files written before 2026-11 carry 'timestamp'
+function revive (p) {
+    const point = new Point(p.name)
+    point.tags = Object.assign({}, p.tags)
+    point.fields = Object.assign({}, p.fields)
+    const time = p.time !== undefined ? p.time : p.timestamp
+    if (time !== undefined)
+        point.timestamp(time)
+    return point
+}
+
+// write points - resolves once influx confirmed them, rejects otherwise
+function write (influxdb, points, config) {
     // [Required] Organization | Empty for 1.8.x
-    // [Required] Bucket | Database/Retention Policy 
+    // [Required] Bucket | Database/Retention Policy
     // Precision of timestamp. [`ns`, `us`, `ms`, `s`]. The default would be `ns` for other data
     const writeAPI = influxdb.getWriteApi(config.organization, config.bucket, 'ms')
     writeAPI.useDefaultTags({id: config.id})
-    
-    // write point with the appropriate (client-side) timestamp
-    let measurements = {}
-    if (Array.isArray(metrics))
-        metrics.forEach(p => {
-            writeAPI.writePoint(p)
-            measurements[p.name] = (measurements[p.name] ? measurements[p.name]+1 : 1)
-        })
-    writeAPI
-        .close()
+    points.forEach(p => writeAPI.writePoint(p))
+    return writeAPI.close()
+}
+
+// replay cached files one by one - a file is only removed once all its points are confirmed
+async function replay (influxdb, config) {
+    if (replaying)
+        return true
+    const files = cache.load(config.cacheDir)
+    if (files === false)
+        return true
+    replaying = true
+    log(`Replaying ${files.length} cached file(s) to influx`)
+    try {
+        for (const file of files) {
+            const points = cache.read(file, config.cacheDir).map(revive)
+            for (let i = 0; i < points.length; i += BatchSize)
+                await write(influxdb, points.slice(i, i + BatchSize), config)
+            cache.remove(file, config.cacheDir)
+            log(`Replayed ${points.length} cached data point(s) from ${file}`)
+        }
+        return true
+    } catch (err) {
+        log(`Replay stopped, cached data kept: ${err.message}`)
+        return false
+    } finally {
+        replaying = false
+    }
+}
+
+// post points - confirmed points trigger the replay of the cache, failed points are cached
+function post (influxdb, metrics, config) {
+    if (!Array.isArray(metrics) || metrics.length === 0)
+        return Promise.resolve(true)
+    const measurements = {}
+    metrics.forEach(p => {
+        measurements[p.name] = (measurements[p.name] ? measurements[p.name]+1 : 1)
+    })
+    return write(influxdb, metrics, config)
         .then(() => {
             log(measurements)
-            // these points are confirmed written, so drop exactly them from the retry buffer
-            if (Array.isArray(metrics))
-                cacheBuffer = cacheBuffer.filter(p => !metrics.includes(p))
-            cacheResult = cache.load(config.cacheDir) 
-            if (cacheResult === false) {
-                return
-            }
-            else {      
-                let cached = cache.send(cacheResult, config.cacheDir)
-                log('Sending '+cached.length+' cached data points to be uploaded to influx')
-                let points = []
-                cached.forEach(p => {
-                    let point = new Point(p.name)
-                        .tag(Object.keys(p.tags)[0], p.tags[Object.keys(p.tags)[0]])
-                        .timestamp(p.timestamp)
-                    if (typeof p.fields[Object.keys(p.fields)[0]]==='float' || parseFloat(p.fields[Object.keys(p.fields)[0]]).toString()!=='NaN') 
-                        point.floatField(Object.keys(p.fields)[0], parseFloat(p.fields[Object.keys(p.fields)[0]]))
-                    else
-                        point.stringField(Object.keys(p.fields)[0], p.fields[Object.keys(p.fields)[0]])
-                    points.push(point)
-                })
-                for (let i = 0; i < points.length; i += BatchSize) {
-                    const batch = points.slice(i, i + BatchSize);
-                        post(influxdb, batch, config)
-                }
-            }
+            release(metrics)
+            return replay(influxdb, config)
         })
         .catch(err => {
-            // Handle errors
-            if (cache.push(cacheBuffer, config.cacheDir))
-                cacheBuffer = []
-            log(`Metrics not written due to ${err.message}`);
-            const cacheResult = cache.load(config.cacheDir)
-            if (cacheResult !== false) {
-                log(`${cacheResult.length} files cached`)
-            }
+            log(`Metrics not written due to ${err.message}`)
+            // cache exactly the failed points - other posts may still be in flight
+            if (cache.push(metrics, config.cacheDir))
+                release(metrics)
+            return false
         })
 }
 
@@ -362,7 +378,6 @@ function format (path, values, timestamp, skSource) {
         case 1:
         default:
             // invalid
-            fields = null
             break;
     }
 
@@ -371,7 +386,9 @@ function format (path, values, timestamp, skSource) {
         return null
     if (skSource && skSource!=='')
         point.tag('source', skSource)
-    point.timestamp = (timestamp ? timestamp.toMillis() : DateTime.utc().toMillis())
+    // time of measurement in ms (write precision) - falls back to now for a missing or invalid timestamp
+    const millis = timestamp && typeof timestamp.toMillis === 'function' ? timestamp.toMillis() : NaN
+    point.timestamp(Number.isFinite(millis) ? millis : DateTime.utc().toMillis())
     return point
 }
 
@@ -383,8 +400,10 @@ module.exports = {
     match,      // find dynamics path matching actual config path
     check,      // check if config file exists
     save,       // save configuration to file
-    buffer,     // load cache if post can be complete
+    buffer,     // keep posted points until confirmed
     flush,      // flush the buffer to cache
-    post,       // post to InfluxDB
+    post,       // post to InfluxDB, cache on failure, replay cache on success
+    replay,     // replay cached files to InfluxDB
+    revive,     // rebuild a cached point
     format      // format measurement before sending
 }
