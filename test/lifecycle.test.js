@@ -38,6 +38,18 @@ function createStubServer(recorded) {
         });
         res.writeHead(204);
         res.end();
+      } else if (req.method === 'POST' && url.pathname === '/api/v2/query') {
+        recorded.queries.push(JSON.parse(body || '{}').query);
+        res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8' });
+        res.end([
+          '#datatype,string,long,dateTime:RFC3339,double',
+          '#group,false,false,false,false',
+          '#default,_result,,,',
+          ',result,table,_time,_value',
+          ',,0,2026-11-15T10:00:00Z,101300',
+          ',,0,2026-11-15T10:01:00Z,101310',
+          '',
+        ].join('\r\n'));
       } else if (req.method === 'POST' && url.pathname === '/signalk/v1/auth/login') {
         recorded.logins.push(JSON.parse(body || '{}'));
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -63,6 +75,31 @@ async function waitFor(condition, description, timeout = 10000) {
   assert.fail(`timed out waiting for ${description}`);
 }
 
+// express router stand-in - router.access(level) exists from server 2.31
+function createRouter(withAccess) {
+  const routes = {};
+  const levels = [];
+  const router = { get: (p, handler) => { routes[p] = handler; } };
+  if (withAccess) {
+    router.access = (level) => {
+      levels.push(level);
+      return router;
+    };
+  }
+  return { router, routes, levels };
+}
+
+async function call(handler, query = {}) {
+  const res = {
+    code: 200,
+    body: undefined,
+    status(code) { this.code = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  await handler({ query }, res);
+  return res;
+}
+
 function delta(path, value, source = 'test.source') {
   return {
     updates: [
@@ -76,7 +113,7 @@ function delta(path, value, source = 'test.source') {
 }
 
 describe('plugin lifecycle', () => {
-  const recorded = { writes: [], logins: [], appData: [] };
+  const recorded = { writes: [], logins: [], appData: [], queries: [] };
   const statuses = [];
   const errors = [];
   const sentDeltas = [];
@@ -123,7 +160,6 @@ describe('plugin lifecycle', () => {
       influxToken: 'test-token',
       influxOrg: 'test-org',
       influxBucket: 'test-bucket',
-      selfRef: `${baseUrl}|user|pwd`,
       loadFrequency: 1,
     };
     plugin = pluginFactory(app);
@@ -206,17 +242,56 @@ describe('plugin lifecycle', () => {
     assert.deepEqual(errors, []);
   });
 
-  it('publishes its configuration to the SignalK application data store', async () => {
-    await waitFor(() => recorded.appData.length > 0, 'application data to be posted');
+  it('no longer logs into the server or publishes credentials as application data', () => {
+    assert.deepEqual(recorded.logins, []);
+    assert.deepEqual(recorded.appData, []);
+  });
 
-    const config = recorded.appData[0];
-    assert.deepEqual(recorded.logins[0], { username: 'user', password: 'pwd' });
-    assert.equal(config.influx.url, `${baseUrl}`);
-    assert.equal(config.influx.org, 'test-org');
-    assert.equal(config.influx.write, 'test-bucket');
-    assert.equal(config.influx.read, 'test-bucket');
-    assert.equal(config.influx.id, UUID);
-    assert.equal(typeof config.subscriptions, 'object');
+  it('serves the app settings without credentials to read-only users', async () => {
+    const { router, routes, levels } = createRouter(true);
+    plugin.registerWithRouter(router);
+    assert.deepEqual(levels, ['readonly']);
+
+    const res = await call(routes['/settings']);
+    assert.equal(res.code, 200);
+    assert.equal(res.body.paths.pressure, 'environment.outside.pressure');
+    assert.equal(res.body.history.available, true);
+    assert.deepEqual(res.body.history.timescales, [3, 12, 24, 48, 72]);
+    assert.doesNotMatch(JSON.stringify(res.body), /test-token|token/);
+  });
+
+  it('keeps the routes admin only on servers without router.access', () => {
+    const { router, routes } = createRouter(false);
+    plugin.registerWithRouter(router);
+    assert.deepEqual(Object.keys(routes).sort(), ['/history', '/settings']);
+  });
+
+  it('queries the pressure history from influx on the server', async () => {
+    const { router, routes } = createRouter(true);
+    plugin.registerWithRouter(router);
+
+    const res = await call(routes['/history'], { hours: '3' });
+    assert.equal(res.code, 200, JSON.stringify(res.body));
+    assert.equal(res.body.unit, 'Pa');
+    assert.equal(res.body.bucket, 'write');
+    assert.equal(res.body.resolution, 60);
+    assert.deepEqual(res.body.data, [[Date.parse('2026-11-15T10:00:00Z'), 101300], [Date.parse('2026-11-15T10:01:00Z'), 101310]]);
+
+    const query = recorded.queries[recorded.queries.length - 1];
+    assert.match(query, /from\(bucket: "test-bucket"\)/);
+    assert.match(query, /range\(start: -3h\)/);
+    assert.match(query, /r\["_measurement"\] == "pressure" and r\["_field"\] == "value"/);
+    assert.match(query, /r\["environment"\] == "outside"/);
+    assert.ok(query.includes(`r["id"] == "${UUID}"`));
+
+    const invalid = await call(routes['/history'], { hours: 'abc' });
+    assert.equal(invalid.code, 400);
+  });
+
+  it('openApi describes the routes', () => {
+    const api = plugin.getOpenApi();
+    assert.equal(api.servers[0].url, '/plugins/signalk-barograph');
+    assert.deepEqual(Object.keys(api.paths).sort(), ['/history', '/settings']);
   });
 
   it('stops, unsubscribes and no longer uploads', async () => {

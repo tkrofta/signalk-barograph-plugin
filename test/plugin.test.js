@@ -38,14 +38,14 @@ describe('plugin', () => {
   });
 
   it('starts and stops without error', () => {
-    plugin.start({ influxUri: unreachable, influxToken: 'token', selfRef: `${unreachable}|user|pwd` }, () => {});
+    plugin.start({ influxUri: unreachable, influxToken: 'token' }, () => {});
     plugin.stop();
   });
 });
 
 describe('plugin without influx', () => {
   const unreachable = 'http://127.0.0.1:1';
-  const options = () => ({ influxUri: unreachable, influxToken: 'token', selfRef: unreachable, loadFrequency: 1 });
+  const options = () => ({ influxUri: unreachable, influxToken: 'token', loadFrequency: 1 });
 
   function createApp(dataDir) {
     const app = {
@@ -123,7 +123,7 @@ describe('plugin without influx', () => {
     const app = createApp(dataDir);
     const plugin = pluginFactory(app);
     try {
-      plugin.start({ ...options(), influxUri: url, selfRef: url }, () => {});
+      plugin.start({ ...options(), influxUri: url }, () => {});
       await waitFor(() => app.errors.length > 0);
       assert.match(app.errors[0], /^Influx writes failing - offline cache 1 file\(s\)/);
     } finally {
