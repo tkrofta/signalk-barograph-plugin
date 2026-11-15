@@ -58,10 +58,16 @@ describe('barometer', () => {
     assert.equal(barometer.predictWindSpeed({ force: 'Unknown', min: 0, max: 0 }, 'min'), null);
     assert.equal(barometer.predictWindSpeed({ force: 'Unknown', min: 0, max: 0 }, 'max'), null);
     assert.equal(barometer.predictWindSpeed(undefined, 'max'), null);
+    // 'Less than F6' ends where F6 begins - no overlap with 'F6-7'
     assert.equal(barometer.predictWindSpeed({ force: 'Less than F6', min: 0, max: 6 }, 'min'), 0);
-    assert.equal(barometer.predictWindSpeed({ force: 'Less than F6', min: 0, max: 6 }, 'max'), 13.9);
+    assert.equal(barometer.predictWindSpeed({ force: 'Less than F6', min: 0, max: 6 }, 'max'), 10.8);
+    assert.equal(barometer.predictWindSpeed({ force: 'F6-7', min: 6, max: 7 }, 'min'), 10.8);
+    assert.equal(barometer.predictWindSpeed({ force: 'F6-7', min: 6, max: 7 }, 'max'), 17.2);
+    assert.equal(barometer.predictWindSpeed({ force: 'F8-9', min: 8, max: 9 }, 'max'), 24.5);
+    // F12 is open ended
     assert.equal(barometer.predictWindSpeed({ force: 'F8-12', min: 8, max: 12 }, 'min'), 17.2);
-    assert.equal(barometer.predictWindSpeed({ force: 'F8-12', min: 8, max: 12 }, 'max'), 99.9);
+    assert.equal(barometer.predictWindSpeed({ force: 'F8-12', min: 8, max: 12 }, 'max'), null);
+    assert.equal(barometer.predictWindSpeed({ force: 'F10+', min: 10, max: 12 }, 'max'), null);
   });
 
   it('saves the pressure history on stop and restores the last 48h on start', () => {

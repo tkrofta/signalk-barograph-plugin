@@ -257,6 +257,7 @@ describe('plugin lifecycle', () => {
     assert.equal(res.body.paths.pressure, 'environment.outside.pressure');
     assert.equal(res.body.history.available, true);
     assert.deepEqual(res.body.history.timescales, [3, 12, 24, 48, 72]);
+    assert.deepEqual(res.body.history.buckets, { write: 'test-bucket', read: 'test-bucket' });
     assert.doesNotMatch(JSON.stringify(res.body), /test-token|token/);
   });
 
