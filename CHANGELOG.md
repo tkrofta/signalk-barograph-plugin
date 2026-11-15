@@ -13,7 +13,7 @@ Public Release
 
 ### Feature
 - Barograph app rebuilt for the React 19 admin UI (SignalK Server 2.24 or later): barometer dial with set hand, barograph trace for 3h / 12h / 24h / 48h / 72h, trend and predictions, units hPa, mbar, kPa, inHg, mmHg, atm, Pa.
-- Plugin endpoints `/plugins/signalk-barograph/settings` and `/history` (OpenAPI under *Documentation*): the app no longer receives the InfluxDB credentials, the history is queried on the server. Readable by every logged-in user from SignalK Server 2.31, by administrators only before.
+- Plugin endpoints `/plugins/signalk-barograph/settings` and `/history` (OpenAPI under *Documentation*): the app no longer receives the InfluxDB credentials (only the bucket names, shown as source of the history), the history is queried on the server. Readable by every logged-in user from SignalK Server 2.31, by administrators only before.
 - The *selfRef* setting (SignalK user and password) is removed - no longer needed.
 - Pending offline cache files are shown on the plugin state; from half of the size or age limit, or once data had to be dropped, the state turns into an error.
 - Predictions use at most one pressure reading per minute, independent of the subscription period.
