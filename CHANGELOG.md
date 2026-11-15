@@ -10,6 +10,7 @@ Public Release
 - The path configuration file is re-read on every plugin (re)start.
 - `environment.barometer.wind.minimum` / `maximum` are published in m/s - they carried Beaufort numbers; an unknown wind force no longer drops the whole prediction update.
 - Stopping the plugin before the InfluxDB health check completed no longer leaves a running subscription.
+- Forecast values are written to InfluxDB at the time they are valid for as published by the same source - forecast plugins or models valid for different hours no longer mix.
 
 ### Feature
 - Barograph app rebuilt for the React 19 admin UI (SignalK Server 2.24 or later): barometer dial with set hand, barograph trace for 3h / 12h / 24h / 48h / 72h, trend and predictions, units hPa, mbar, kPa, inHg, mmHg, atm, Pa.
@@ -20,3 +21,5 @@ Public Release
 - The pressure history of the last 48 h is saved on plugin stop and restored on start - predictions are available right after a restart.
 - skunits update: missing values stay missing instead of 0, Beaufort conversions, additional units.
 - Logging via the `signalk-barograph` debug log.
+- Forecast trace in the barograph from the Open-Meteo plugin (`openmeteo-signalk`), if installed and enabled: past forecasts as captured from InfluxDB, the next 3 hours from its forecast endpoint - *Forecast trace* switch in the plugin configuration; `/history?series=forecast&source=` for the forecasts of one source.
+- History at about 720 points per timescale: one minute up to 12h, 2 minutes at 24h; beyond the write retention not below the 5 minute values of the read bucket.

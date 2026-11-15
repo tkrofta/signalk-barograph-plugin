@@ -78,10 +78,13 @@ The barograph is embedded in the SignalK admin UI (*Webapps → Barograph*): a b
 
 Up to the *Write Bucket Retention* the history is read from the write bucket, beyond it from the read bucket (field `average`, e.g. downsampled by an InfluxDB task) - without a separate read bucket the write bucket is used for every timescale.
 
+**Forecast trace** - with the [Open-Meteo plugin](https://github.com/inspired-technologies/signalk-openmeteo-plugin) (`openmeteo-signalk`) installed and enabled, the barograph shows its pressure forecast as a second, dashed trace: the forecasts captured at the time and position from InfluxDB (`environment.forecast.pressure`, stored at the time they are valid for, of the first Open-Meteo model only) and the next 3 hours from the forecast endpoint of the Open-Meteo plugin. Both apply to the station elevation (`navigation.gnss.antennaAltitude`), like the barometer. The trace is switched off with *Forecast trace* in the plugin configuration and is inactive without the Open-Meteo plugin.
+
 | Endpoint | Description |
 | -------- | ----------- |
 | `GET /plugins/signalk-barograph/settings` | subscribed paths, history availability and timescales - no credentials |
-| `GET /plugins/signalk-barograph/history?hours=3` | pressure history in Pa as `[[time ms, Pa], ...]`, averaged to about 180 points |
+| `GET /plugins/signalk-barograph/history?hours=3` | pressure history in Pa as `[[time ms, Pa], ...]`, averaged to about 720 points (one minute up to 12h, read bucket not below 5 minutes) |
+| `GET /plugins/signalk-barograph/history?hours=3&series=forecast&source=<$source>` | pressure forecasts of one source as captured at the time |
 
 Both are described in the admin UI under *Documentation → OpenAPI*.
 

@@ -4,6 +4,9 @@
 .github
 #pathconfig - will be recreated
 pathconfig.json
+#influx - not needed for the package
+influx/
+
 
 # Logs
 logs
