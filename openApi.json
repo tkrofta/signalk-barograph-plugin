@@ -75,6 +75,14 @@
             "properties": {
               "available": { "type": "boolean" },
               "retention": { "type": "number", "description": "write bucket retention in hours" },
+              "buckets": {
+                "type": "object",
+                "description": "InfluxDB buckets the history is read from - write bucket up to the retention, read bucket beyond",
+                "properties": {
+                  "write": { "type": "string", "example": "signalk" },
+                  "read": { "type": "string", "example": "signalk_downsampled" }
+                }
+              },
               "timescales": { "type": "array", "items": { "type": "number" }, "example": [3, 12, 24, 48, 72] }
             }
           },

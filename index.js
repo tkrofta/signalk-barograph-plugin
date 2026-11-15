@@ -328,6 +328,8 @@ module.exports = function (app) {
             history: {
                 available: !!(running && influxConfig.online),
                 retention: influxConfig.retention || 3,
+                // bucket names only - shown as source of the history in the app
+                buckets: { write: influxConfig.bucket || '', read: influxConfig.read || influxConfig.bucket || '' },
                 timescales: history.TIMESCALES
             },
             interval: influxConfig.loadFrequency || 30
