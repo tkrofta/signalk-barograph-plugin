@@ -111,9 +111,6 @@ dist
 .ai/
 CLAUDE.md
 
-# Docs
-docs/backlog.md
-
 # App development build output (webpack dev mode) - only the production build in public/ is tracked
 public/*.map
 public/src_*.js
