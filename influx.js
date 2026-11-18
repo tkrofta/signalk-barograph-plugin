@@ -23,6 +23,7 @@ const cache = require('./cache')
 const log = require("debug")("signalk-barograph:influx")
 
 const BatchSize = 5000
+const HOUR = 60 * 60 * 1000
 
 let cacheDir = ''
 let cacheBuffer = []        // points posted but not yet confirmed - cached on flush (plugin stop)
@@ -165,6 +166,28 @@ function revive (p) {
     return point
 }
 
+// Points outside the write bucket retention can never be replayed successfully.
+// Keep retention filtering local to the writer: callers still pass the original
+// Signal K timestamp and transient failures continue to use the offline cache.
+function withinRetention (point, config, now = Date.now()) {
+    const retention = Number(config && config.retention)
+    if (!Number.isFinite(retention) || retention <= 0)
+        return true
+    const time = point && (point.time !== undefined ? point.time : point.timestamp)
+    const millis = time instanceof Date ? time.getTime() : Number(time)
+    // Unknown timestamp shapes are left to the Influx client instead of being
+    // silently discarded. Points created by format() and revive() use ms here.
+    return !Number.isFinite(millis) || millis >= now - retention * HOUR
+}
+
+function eligible (points, config, now = Date.now()) {
+    const accepted = points.filter(point => withinRetention(point, config, now))
+    const dropped = points.length - accepted.length
+    if (dropped > 0)
+        log(`Skipping ${dropped} data point(s) outside the ${config.retention}h write retention`)
+    return accepted
+}
+
 // write points - resolves once influx confirmed them, rejects otherwise
 function write (influxdb, points, config) {
     // [Required] Organization | Empty for 1.8.x
@@ -187,7 +210,7 @@ async function replay (influxdb, config) {
     log(`Replaying ${files.length} cached file(s) to influx`)
     try {
         for (const file of files) {
-            const points = cache.read(file, config.cacheDir).map(revive)
+            const points = eligible(cache.read(file, config.cacheDir).map(revive), config)
             for (let i = 0; i < points.length; i += BatchSize)
                 await write(influxdb, points.slice(i, i + BatchSize), config)
             cache.remove(file, config.cacheDir)
@@ -206,21 +229,32 @@ async function replay (influxdb, config) {
 function post (influxdb, metrics, config) {
     if (!Array.isArray(metrics) || metrics.length === 0)
         return Promise.resolve(true)
+    const points = eligible(metrics, config)
+    // Metrics are also held in cacheBuffer until confirmed or cached. Expired
+    // points are intentionally neither written nor persisted on plugin stop.
+    // The caller buffers the batch immediately after post(), so defer release
+    // until that synchronous buffer step has completed.
+    const accepted = new Set(points)
+    const expired = metrics.filter(point => !accepted.has(point))
+    if (expired.length > 0)
+        queueMicrotask(() => release(expired))
+    if (points.length === 0)
+        return Promise.resolve(true)
     const measurements = {}
-    metrics.forEach(p => {
+    points.forEach(p => {
         measurements[p.name] = (measurements[p.name] ? measurements[p.name]+1 : 1)
     })
-    return write(influxdb, metrics, config)
+    return write(influxdb, points, config)
         .then(() => {
             log(measurements)
-            release(metrics)
+            release(points)
             return replay(influxdb, config)
         })
         .catch(err => {
             log(`Metrics not written due to ${err.message}`)
             // cache exactly the failed points - other posts may still be in flight
-            if (cache.push(metrics, config.cacheDir))
-                release(metrics)
+            if (cache.push(points, config.cacheDir))
+                release(points)
             return false
         })
 }

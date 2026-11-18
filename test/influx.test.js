@@ -71,8 +71,9 @@ describe('influx points', () => {
 });
 
 describe('influx post and replay', () => {
-  const config = (dir) => ({ organization: 'org', bucket: 'bucket', id: 'test', cacheDir: dir });
+  const config = (dir) => ({ organization: 'org', bucket: 'bucket', id: 'test', cacheDir: dir, retention: 6 });
   const point = (value) => influx.format('environment.outside.pressure', value, DateTime.utc(), 'bme280');
+  const measuredPoint = (value, millis) => influx.format('environment.outside.pressure', value, DateTime.fromMillis(millis), 'bme280');
 
   it('caches exactly the points of a failed post', async () => {
     const dir = createDataDir();
@@ -121,6 +122,58 @@ describe('influx post and replay', () => {
       assert.equal(await influx.replay(db, config(dir)), true);
       assert.equal(cachedFiles(dir).length, 0);
       assert.equal(db.written.length, 1);
+    } finally {
+      removeDataDir(dir);
+    }
+  });
+
+  it('does not write or cache points already outside retention', async () => {
+    const dir = createDataDir();
+    try {
+      const db = stubInflux();
+      db.down = true;
+      const expired = measuredPoint(1, Date.now() - 7 * 60 * 60 * 1000);
+      const posting = influx.post(db, [expired], config(dir));
+      // The plugin buffers immediately after post() so stop can preserve an
+      // in-flight write. Expired points must be released after this step.
+      influx.buffer([expired]);
+      assert.equal(await posting, true);
+      assert.equal(db.attempts, 0);
+      assert.equal(cachedFiles(dir).length, 0);
+      influx.flush([], dir);
+      assert.equal(cachedFiles(dir).length, 0);
+    } finally {
+      removeDataDir(dir);
+    }
+  });
+
+  it('drops expired cached points and replays the remaining points', async () => {
+    const dir = createDataDir();
+    try {
+      const db = stubInflux();
+      const expired = measuredPoint(1, Date.now() - 7 * 60 * 60 * 1000);
+      const current = point(2);
+      cache.push(JSON.parse(JSON.stringify([expired, current])), dir);
+      assert.equal(await influx.replay(db, config(dir)), true);
+      assert.equal(cachedFiles(dir).length, 0);
+      assert.equal(db.attempts, 1);
+      assert.equal(db.written.length, 1);
+      assert.match(db.written[0], /value=2/);
+    } finally {
+      removeDataDir(dir);
+    }
+  });
+
+  it('removes an all-expired cache file without writing it', async () => {
+    const dir = createDataDir();
+    try {
+      const db = stubInflux();
+      const expired = measuredPoint(1, Date.now() - 7 * 60 * 60 * 1000);
+      cache.push(JSON.parse(JSON.stringify([expired])), dir);
+      assert.equal(await influx.replay(db, config(dir)), true);
+      assert.equal(cachedFiles(dir).length, 0);
+      assert.equal(db.attempts, 0);
+      assert.equal(db.written.length, 0);
     } finally {
       removeDataDir(dir);
     }

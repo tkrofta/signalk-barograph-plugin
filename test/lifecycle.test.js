@@ -231,9 +231,9 @@ describe('plugin lifecycle', () => {
 
   it('writes forecasts at the time they are valid for, taken from the same source', async () => {
     const before = recorded.writes.length;
-    const valid = '2026-11-15T13:00:00.000Z';
+    const valid = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     onDelta(delta('environment.forecast.time', valid, 'openmeteo-signalk.icon_seamless'));
-    onDelta(delta('environment.forecast.time', '2026-11-15T15:00:00.000Z', 'openweather'));
+    onDelta(delta('environment.forecast.time', new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(), 'openweather'));
     onDelta(delta('environment.forecast.pressure', 100500, 'openmeteo-signalk.icon_seamless'));
     await waitFor(() => recorded.writes.slice(before).some((w) => w.lines.some((l) => l.startsWith('pressure,environment=forecast'))), 'forecast to be written');
     const line = recorded.writes.slice(before).flatMap((w) => w.lines).find((l) => l.startsWith('pressure,environment=forecast'));
