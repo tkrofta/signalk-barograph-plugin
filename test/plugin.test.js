@@ -50,10 +50,11 @@ describe('plugin without influx', () => {
   function createApp(dataDir) {
     const app = {
       errors: [],
+      statuses: [],
       subscriptions: 0,
       debug: () => {},
       error: () => {},
-      setPluginStatus: () => {},
+      setPluginStatus: (status) => app.statuses.push(status),
       setPluginError: (error) => app.errors.push(error),
       getDataDirPath: () => dataDir,
       getSelfPath: () => undefined,
@@ -100,6 +101,44 @@ describe('plugin without influx', () => {
       assert.match(app.errors[0], /^Failed to connect to Influx \(.+\) - publishing predictions only$/);
     } finally {
       plugin.stop();
+      fs.rmSync(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it('recovers when influx becomes healthy without subscribing twice', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'signalk-barograph-'));
+    let healthRequests = 0;
+    const server = http.createServer((req, res) => {
+      if (req.url.startsWith('/health')) {
+        healthRequests += 1;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          name: 'influxdb',
+          status: healthRequests === 1 ? 'fail' : 'pass',
+          message: healthRequests === 1 ? 'starting' : 'ready',
+          checks: [],
+        }));
+      } else {
+        res.writeHead(404);
+        res.end();
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const app = createApp(dataDir);
+    const plugin = pluginFactory(app);
+    try {
+      plugin.start({
+        ...options(),
+        influxUri: `http://127.0.0.1:${server.address().port}`,
+        loadFrequency: 60,
+      }, () => {});
+      await waitFor(() => healthRequests >= 2 && app.statuses.some((status) => /^Started/.test(status)), 4000);
+      assert.equal(healthRequests, 2);
+      assert.equal(app.subscriptions, 1);
+      assert.match(app.errors[0], /starting/);
+    } finally {
+      plugin.stop();
+      await new Promise((resolve) => server.close(resolve));
       fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });

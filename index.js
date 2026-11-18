@@ -100,6 +100,8 @@ module.exports = function (app) {
 
     var unsubscribes = []
     let timerId
+    let healthRetryId
+    let healthRetryAttempt = 0
     let metrics = []
     let pathConfig = {}
     let valueConfig = {}
@@ -107,6 +109,8 @@ module.exports = function (app) {
     let forecastReason = null   // last logged reason of the forecast trace availability
     let generation = 0          // ... and against a check of a previous start completing after a restart
     let reported = ''           // last plugin status set from the offline cache
+
+    const HEALTH_RETRY_DELAYS = [1000, 5000, 15000, 60000]
 
     // plugin status from the offline cache: pending files are shown, a filling cache is raised as error
     function reportCache() {
@@ -153,7 +157,8 @@ module.exports = function (app) {
             log('Plugin stopped before influx health check completed - not subscribing')
             return false
         }
-        // influx is checked once on start: if it fails, the plugin is set to error and keeps publishing predictions
+        // The first check starts subscriptions even while offline; checkInflux()
+        // retries the connection without registering them again.
         influxConfig.online = (result && result.status === 'pass')
         if (influxConfig.online)
             log({
@@ -267,12 +272,57 @@ module.exports = function (app) {
         return influxConfig.online
     }
 
+    // The initial health check runs while the server is still starting and may
+    // time out under load. Keep the subscriptions/timer created by subscribe(),
+    // but retry only the Influx health check so recovery cannot duplicate them.
+    function checkInflux(influxDB, started, initial) {
+        influx.health(influxDB, (db, result) => {
+            if (!running || started !== generation) {
+                log('Plugin stopped before influx health check completed - not retrying')
+                return
+            }
+
+            const online = !!(result && result.status === 'pass')
+            if (initial) {
+                subscribe(db, result, started)
+            } else {
+                influxConfig.online = online
+                if (online) {
+                    healthRetryAttempt = 0
+                    reported = ''
+                    reportCache()
+                    log('Influx connection recovered')
+                } else {
+                    const reason = result && result.message ? ` (${result.message})` : ''
+                    app.setPluginError(`Failed to connect to Influx${reason} - retrying`)
+                    log(`Influx still not available${reason} - retrying`)
+                }
+            }
+
+            if (!online) {
+                const delay = HEALTH_RETRY_DELAYS[Math.min(healthRetryAttempt, HEALTH_RETRY_DELAYS.length - 1)]
+                healthRetryAttempt += 1
+                healthRetryId = setTimeout(() => {
+                    healthRetryId = undefined
+                    checkInflux(db, started, false)
+                }, delay)
+                if (typeof healthRetryId.unref === 'function')
+                    healthRetryId.unref()
+                log(`Retrying Influx health check in ${delay / 1000}s`)
+            }
+        })
+    }
+
     plugin.start = function (options, restartPlugin) {
 
         log('Plugin starting ...');
         app.setPluginStatus('Initializing');
         running = true
         const started = ++generation
+
+        clearTimeout(healthRetryId)
+        healthRetryId = undefined
+        healthRetryAttempt = 0
 
         metrics = []
         pathConfig = {}
@@ -311,7 +361,7 @@ module.exports = function (app) {
         }, influxConfig.cacheDir)
         influxConfig.client = influxDB
         influxConfig.initialized = true
-        influx.health(influxDB, (db, result) => subscribe(db, result, started))
+        checkInflux(influxDB, started, true)
 
         log('Plugin initialized');
     };
@@ -322,6 +372,9 @@ module.exports = function (app) {
         unsubscribes = [];
         clearInterval(timerId)
         timerId = undefined
+        clearTimeout(healthRetryId)
+        healthRetryId = undefined
+        healthRetryAttempt = 0
         log('Interval Timer Stopped')
         metrics = influx.flush(metrics, influxConfig.cacheDir ? influxConfig.cacheDir : app.getDataDirPath())
         barometer.persist(app.getDataDirPath())
